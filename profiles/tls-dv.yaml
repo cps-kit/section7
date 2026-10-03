@@ -1,0 +1,16 @@
+extends: _tls.yaml
+
+profile:
+  name: TLS DV Certificate
+  recognized_by:
+      policy_oid: 2.23.140.1.2.1
+  version: 3
+
+requirements:
+  extensions:
+    certificate_policies:
+      required_values:
+        - 2.23.140.1.2.1
+
+    crl_distribution_points:
+      required: false

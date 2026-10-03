@@ -1,0 +1,31 @@
+# The additional Subject attributes that identify an Extended Validation
+# subject. Mixed in alongside _subject-organization.yaml.
+
+requirements:
+  subject:
+    attributes:
+      serial_number:
+        required: true
+        length:
+          min: 1
+          max: 64
+      jurisdiction_country_name:
+        required: true
+        length:
+          min: 2
+          max: 2
+      jurisdiction_state_or_province_name:
+        required: false
+        length:
+          min: 1
+          max: 128
+      jurisdiction_locality_name:
+        required: false
+        length:
+          min: 1
+          max: 128
+      business_category:
+        required: true
+        length:
+          min: 1
+          max: 64

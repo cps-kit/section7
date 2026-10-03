@@ -1,0 +1,15 @@
+extends:
+  - _tls.yaml
+  - _subject-organization.yaml
+
+profile:
+  name: TLS OV Certificate
+  recognized_by:
+    policy_oid: 2.23.140.1.2.2
+  version: 3
+
+requirements:
+  extensions:
+    certificate_policies:
+      required_values:
+        - 2.23.140.1.2.2

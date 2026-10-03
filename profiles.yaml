@@ -1,0 +1,8 @@
+profiles:
+  tls-dv.yaml: ./profiles/tls-dv.yaml
+  tls-ov.yaml: ./profiles/tls-ov.yaml
+  tls-ev.yaml: ./profiles/tls-ev.yaml
+  _common.yaml: ./profiles/_common.yaml
+  _tls.yaml: ./profiles/_tls.yaml
+  _subject-organization.yaml: ./profiles/_subject-organization.yaml
+  _subject-ev.yaml: ./profiles/_subject-ev.yaml

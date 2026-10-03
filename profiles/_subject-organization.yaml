@@ -1,0 +1,33 @@
+# The Subject attributes common to every organization-validated profile.
+#
+# A profile mixes this in alongside its own base with a list of `extends`, and
+# adds any further attributes it permits.
+
+requirements:
+  subject:
+    attributes:
+      common_name:
+        required: false
+        length:
+          min: 1
+          max: 64
+      organization_name:
+        required: true
+        length:
+          min: 1
+          max: 64
+      state_or_province_name:
+        required: true
+        length:
+          min: 1
+          max: 128
+      locality_name:
+        required: false
+        length:
+          min: 1
+          max: 128
+      country_name:
+        required: true
+        length:
+          min: 2
+          max: 2

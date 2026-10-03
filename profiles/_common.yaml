@@ -1,0 +1,62 @@
+# Requirements shared by every profile.
+#
+# This file is a shared definition rather than a profile of its own: the
+# leading underscore keeps it out of profile discovery, so no certificate is
+# ever linted against it directly. Profiles pull it in with `extends`, which
+# means a change here is a single edit that every profile inherits, and no two
+# profiles can disagree about it.
+
+requirements:
+  serial_number:
+    required: true
+    maximum_bit_length: 159
+    minimum_octets: 8
+    textual_requirement: "MUST be a non-sequential number greater than zero (0) and less than 2¹⁵⁹ containing at least 64 bits of output from a CSPRNG."
+
+  extensions:
+    certificate_policies:
+      required: true
+      critical: false
+      # Each profile adds the policy OID that identifies it.
+      optional_arcs:
+        - 1.3.6.1.4.1.6449.*
+
+    authority_key_identifier:
+      required: true
+      critical: false
+
+    subject_key_identifier:
+      required: true
+      critical: false
+
+    authority_information_access:
+      required: true
+      critical: false
+      access_descriptions:
+        - access_method: id-ad-caIssuers
+          required: true
+        - access_method: id-ad-ocsp
+          required: true
+
+    basic_constraints:
+      required: true
+      critical: true
+      ca: false
+
+    key_usage:
+      required: true
+      critical: true
+      required_values:
+        - digitalSignature
+
+    # Each profile adds the key purposes it permits.
+    extended_key_usage:
+      required: true
+      critical: false
+
+    crl_distribution_points:
+      required: true
+      critical: false
+      distribution_points:
+        - full_name:
+            - uniform_resource_identifier

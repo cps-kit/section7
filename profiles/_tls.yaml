@@ -1,0 +1,49 @@
+# Requirements shared by every TLS server profile.
+
+extends: _common.yaml
+
+requirements:
+  validity:
+    maximum_days: 200
+
+  subject:
+    required: true
+    allow_empty: true
+    attributes:
+      common_name:
+        required: false
+        length:
+          min: 1
+          max: 64
+
+  extensions:
+    subject_alt_name:
+      required: true
+      critical: optional
+      optional_values:
+        - dns_name
+        - ip_address
+
+    extended_key_usage:
+      required_values:
+        - serverAuth
+      optional_values:
+        - clientAuth
+
+    key_usage:
+      optional_values:
+        - keyEncipherment
+
+    # A Precertificate carries the poison extension and no SCTs; the final
+    # certificate is the exact opposite.
+    signed_certificate_timestamps:
+      required: false
+      critical: false
+
+    precertificate_poison:
+      required: precertificate_only
+      critical: true
+
+    tls_feature:
+      required: false
+      critical: false
