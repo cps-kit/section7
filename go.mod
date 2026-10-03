@@ -1,4 +1,4 @@
-module section7
+module github.com/cps-kit/section7
 
 go 1.26.4
 
