@@ -1,11 +1,9 @@
-This repository contains a demo of a CPS Linter and CPS Profiles Generator
+This repository contains a CPS Section 7 certificate profile generator and linter.
 
 The profiles located in /profiles, are codified certificate profiles, against which the generator and linter will work.
 
-The CPS Generator can inject the profiles into a CPS document 
-The CPS Linter can validate certificates against the profiles.
-
-The CPSMassLint code has been used to run monthly issuance reports against the linter. 
+The generator can inject the profiles into a CPS document.
+The linter can validate certificates against the profiles.
 
 ## Profiles
 
@@ -24,7 +22,7 @@ Bases are merged in the order listed and the profile is merged last, so a profil
 To review a profile as a single document, with everything it inherits resolved:
 
 ```
-cpsgen -expand profiles/tls-ov.yaml
+profile-gen -expand profiles/tls-ov.yaml
 ```
 
 ## Supported YAML configuration
@@ -191,7 +189,7 @@ The linter also supports:
 - Mappings are merged recursively; sequences replace inherited values.
 - The profile schema is strict: unsupported keys are rejected during validation.
 
-## Generating the CPS
+## Generating the CPS document
 
 The generator reads one or more profile YAML files and expands inherited fragments before rendering a CPS document.
 
@@ -204,7 +202,7 @@ Typical workflow:
 Example:
 
 ```bash
-cpsgen -expand profiles/tls-ov.yaml
+profile-gen -expand profiles/tls-ov.yaml
 ```
 
 This expands inherited fragments and prints the fully resolved profile as YAML.
@@ -212,7 +210,7 @@ This expands inherited fragments and prints the fully resolved profile as YAML.
 To generate a CPS document from a profile:
 
 ```bash
-cpsgen profiles/tls-ov.yaml
+profile-gen profiles/tls-ov.yaml
 ```
 
 The generator will emit the CPS content using the profile metadata and requirements. If you want a single merged view for debugging or documentation, use the `-expand` flag as shown above.
@@ -220,7 +218,7 @@ The generator will emit the CPS content using the profile metadata and requireme
 For a full command reference:
 
 ```bash
-cpsgen -h
+profile-gen -h
 ```
 
-The generator and linter both operate on the same profile model, so a profile that validates with `cpslint` should also be suitable for CPS generation.
+The generator and linter both operate on the same profile model, so a profile that validates with `profile-lint` should also be suitable for CPS generation.

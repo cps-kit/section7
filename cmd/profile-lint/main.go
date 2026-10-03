@@ -1,4 +1,4 @@
-// Command cpslint lints a single X.509 certificate against a CP/CPS profile.
+// Lint a single X.509 certificate against a CP/CPS profile.
 package main
 
 import (
@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	lintpkg "cpsgen/internal/lint"
-	"cpsgen/internal/profile"
+	lintpkg "section7/internal/lint"
+	"section7/internal/profile"
 )
 
 // Local aliases onto the shared lint engine, so that this command (and its
@@ -43,7 +43,7 @@ var (
 // ---------- Main ----------
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "Usage: cpslint <certificate.pem> [profile.yaml]\n\n")
+	fmt.Fprintf(os.Stderr, "Usage: %s <certificate.pem> [profile.yaml]\n\n", os.Args[0])
 	fmt.Fprintf(os.Stderr, "  certificate.pem  PEM-encoded X.509 certificate to lint\n")
 	fmt.Fprintf(os.Stderr, "  profile.yaml     Profile YAML file (e.g. profiles/tls-ov.yaml).\n")
 	fmt.Fprintf(os.Stderr, "                   When omitted, every profile in ./profiles is\n")

@@ -50,7 +50,8 @@ type SerialNumber struct {
 	// For example, a value of 8 enforces "at least 64 bits of entropy".
 	// If zero or omitted, no minimum octets constraint is enforced.
 	MinimumOctets int `yaml:"minimum_octets"`
-	// TextualRequirement is prose reproduced verbatim in the generated CPS.
+	// TextualRequirement is prose reproduced verbatim in the generated CPS
+	// section 7 text.
 	// It expresses requirements (such as non-sequential numbers or CSPRNG entropy)
 	// that cannot be verified by inspecting a certificate alone.
 	TextualRequirement string `yaml:"textual_requirement"`
