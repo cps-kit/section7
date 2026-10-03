@@ -14,7 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"cpsgen/internal/profile"
+	"section7/internal/profile"
 )
 
 // Helper function to create a test certificate
@@ -1438,9 +1438,9 @@ func TestLintCRLDistributionPointDeclaredReasons(t *testing.T) {
 	}
 }
 
-// TestCpslintValidationError tests that ValidateProfile rejects invalid profiles.
+// TestProfileValidationError tests that ValidateProfile rejects invalid profiles.
 // This is tested by calling ValidateProfile directly, not by running main.
-func TestCpslintValidationError(t *testing.T) {
+func TestProfileValidationError(t *testing.T) {
 	invalidProfile := &profile.Profile{
 		Profile: profile.Meta{Name: "Invalid Profile", Version: 3},
 		Requirements: profile.Requirements{

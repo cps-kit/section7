@@ -12,7 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"cpsgen/internal/profile"
+	"section7/internal/profile"
 )
 
 func boolStr(b bool) string {
@@ -570,8 +570,8 @@ func renderProfile(p profile.Profile, raw map[string]interface{}) string {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "Usage: cpsgen -in <template.md> -out <output.md> [-profiles dir]\n")
-	fmt.Fprintf(os.Stderr, "       cpsgen -expand <profile.yaml>\n\n")
+	fmt.Fprintf(os.Stderr, "Usage: %s -in <template.md> -out <output.md> [-profiles dir]\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "       %s -expand <profile.yaml>\n\n", os.Args[0])
 	fmt.Fprintf(os.Stderr, "  -in file        Markdown template containing {PROFILE.<ID>} placeholders (required)\n")
 	fmt.Fprintf(os.Stderr, "  -out file       Path of the generated Markdown document (required)\n")
 	fmt.Fprintf(os.Stderr, "  -profiles dir   Directory containing profile YAML files (default \"profiles\")\n")
@@ -616,7 +616,7 @@ func main() {
 		return
 	}
 
-	// Positional fallback: cpsgen <template> <output>
+	// Positional fallback: profile-gen <template> <output>
 	if *templatePath == "" && flag.NArg() > 0 {
 		*templatePath = flag.Arg(0)
 	}

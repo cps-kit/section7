@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"cpsgen/internal/profile"
+	"section7/internal/profile"
 )
 
 // TestRenderProfile tests the basic profile rendering functionality.

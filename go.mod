@@ -1,4 +1,4 @@
-module cpsgen
+module section7
 
 go 1.26.4
 

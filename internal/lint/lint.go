@@ -1,6 +1,3 @@
-// Package lint implements the certificate linting engine used by the cpslint
-// command line tool. It is kept separate from the command so that other tools
-// (such as the mass linter) can perform exactly the same checks.
 package lint
 
 import (
@@ -11,7 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"cpsgen/internal/profile"
+	"section7/internal/profile"
 )
 
 // ---------- Finding ----------
@@ -1021,9 +1018,9 @@ func Lint(cert *x509.Certificate, p profile.Profile) []Finding {
 
 	// Any extension present in the certificate but not listed in the profile
 	// is not permitted. The extension list is exhaustive: there are no
-	// implicitly permitted extensions, so that the generated CPS describes
-	// every extension a conforming certificate may contain. A profile that
-	// lists no extensions permits none.
+	// implicitly permitted extensions, so that the generated CPS section 7
+	// text describes every extension a conforming certificate may contain.
+	// A profile that lists no extensions permits none.
 	allowed := map[string]bool{}
 	for name := range p.Requirements.Extensions {
 		if oid, ok := profile.ExtensionOID(name); ok {
