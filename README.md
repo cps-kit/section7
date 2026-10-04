@@ -222,3 +222,9 @@ profile-gen -h
 ```
 
 The generator and linter both operate on the same profile model, so a profile that validates with `profile-lint` should also be suitable for CPS generation.
+
+## Mascot
+
+Meet Sherlock.
+
+![Sherlock](server/images/mascot.png)
