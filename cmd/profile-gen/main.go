@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/cps-kit/section7"
@@ -90,10 +89,8 @@ func renderAttributeTable(attrs map[string]section7.Field) string {
 	for name := range attrs {
 		names = append(names, name)
 	}
-	// Sort by the rendered X.520 name so the table reads alphabetically.
-	sort.Slice(names, func(i, j int) bool {
-		return section7.SubjectAttributeLabel(names[i]) < section7.SubjectAttributeLabel(names[j])
-	})
+	// Listed in the order a conforming certificate encodes them.
+	section7.SortAttributeKeys(names)
 
 	if hasLength {
 		sb.WriteString("| Attribute | Short Name | OID | Required | Min Length | Max Length |\n")
@@ -548,14 +545,8 @@ func renderProfile(p section7.Profile, raw map[string]interface{}) string {
 			oid))
 	}
 
-	// Validity
-	sb.WriteString("### Validity\n\n")
-	sb.WriteString("| Field | Value |\n")
-	sb.WriteString("| ----- | ----- |\n")
-	sb.WriteString(fmt.Sprintf("| Maximum Validity (days) | %d |\n\n", p.Requirements.Validity.MaximumDays))
-
-	sb.WriteString(renderSignatureAlgorithm(p.Requirements.SignatureAlgorithm))
-	sb.WriteString(renderPublicKey(p.Requirements.PublicKey))
+	// The sections below follow the field order of the TBSCertificate, so that
+	// the document can be read alongside a certificate from top to bottom.
 
 	// Serial number
 	if sn := p.Requirements.SerialNumber; sn.Declared {
@@ -572,8 +563,16 @@ func renderProfile(p section7.Profile, raw map[string]interface{}) string {
 		}
 	}
 
+	sb.WriteString(renderSignatureAlgorithm(p.Requirements.SignatureAlgorithm))
+
 	// Issuer
 	sb.WriteString(renderIssuer(p.Requirements.Issuer))
+
+	// Validity
+	sb.WriteString("### Validity\n\n")
+	sb.WriteString("| Field | Value |\n")
+	sb.WriteString("| ----- | ----- |\n")
+	sb.WriteString(fmt.Sprintf("| Maximum Validity (days) | %d |\n\n", p.Requirements.Validity.MaximumDays))
 
 	// Subject
 	subject := p.Requirements.Subject
@@ -610,6 +609,8 @@ func renderProfile(p section7.Profile, raw map[string]interface{}) string {
 			"a certificate containing any attribute not listed above does not conform to this profile.\n\n")
 	}
 
+	sb.WriteString(renderPublicKey(p.Requirements.PublicKey))
+
 	// Extensions
 	if len(p.Requirements.Extensions) > 0 {
 		sb.WriteString("### Extensions\n\n")
@@ -629,11 +630,7 @@ func renderProfile(p section7.Profile, raw map[string]interface{}) string {
 				"under consideration.\n\n")
 		}
 
-		names := make([]string, 0, len(p.Requirements.Extensions))
-		for name := range p.Requirements.Extensions {
-			names = append(names, name)
-		}
-		sort.Strings(names)
+		names := section7.ExtensionNames(p.Requirements.Extensions)
 
 		// Summary table for quick reference.
 		sb.WriteString("| Extension | OID | Required | Critical |\n")

@@ -203,6 +203,60 @@ func TestRenderProfileSubjectWithoutRequiredAttributes(t *testing.T) {
 	}
 }
 
+// TestRenderProfileFollowsCertificateOrder checks sections follow the
+// TBSCertificate field order and attribute rows follow the encoding order of
+// Section 7.1.4.2 of the Baseline Requirements.
+func TestRenderProfileFollowsCertificateOrder(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Order Test", Version: 3},
+		Requirements: section7.Requirements{
+			SerialNumber:       section7.SerialNumber{Required: true, Declared: true},
+			SignatureAlgorithm: section7.SignatureAlgorithm{Allowed: []string{"sha256WithRSAEncryption"}},
+			Issuer: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{"common_name": {Required: true}},
+			},
+			Validity: section7.Validity{MaximumDays: 398},
+			Subject: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
+					"common_name":       {Required: true},
+					"organization_name": {Required: true},
+					"country_name":      {Required: true},
+				},
+			},
+			PublicKey: section7.PublicKey{
+				Algorithms: []section7.KeyAlgorithm{{Name: "rsaEncryption", KeySizes: []int{2048}}},
+			},
+			Extensions: map[string]section7.Extension{
+				"basic_constraints": {Critical: section7.CriticalityRequired},
+			},
+		},
+	}
+
+	rendered := renderProfile(p, map[string]interface{}{})
+
+	inOrder := func(what string, items ...string) {
+		t.Helper()
+		pos := 0
+		for _, item := range items {
+			i := strings.Index(rendered[pos:], item)
+			if i == -1 {
+				t.Errorf("%s: %q should appear after the preceding item, got:\n%s", what, item, rendered)
+				return
+			}
+			pos += i + len(item)
+		}
+	}
+
+	inOrder("sections",
+		"### Serial Number", "### Signature Algorithm", "### Issuer DN Requirements",
+		"### Validity", "### Subject DN Requirements", "### Subject Public Key", "### Extensions")
+	inOrder("subject attributes",
+		"### Subject DN Requirements", "| countryName |", "| organizationName |", "| commonName |")
+	if !strings.Contains(rendered, "MUST be present: `countryName`, `organizationName`, `commonName`.") {
+		t.Errorf("required attributes should be listed in encoding order, got:\n%s", rendered)
+	}
+}
+
 // TestRenderProfileAlgorithmsAndIssuer checks the signature algorithm, public
 // key and issuer sections are rendered when a profile states them.
 func TestRenderProfileAlgorithmsAndIssuer(t *testing.T) {
