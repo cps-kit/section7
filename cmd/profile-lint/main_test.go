@@ -801,8 +801,8 @@ func createECCert(t *testing.T, curve elliptic.Curve) *x509.Certificate {
 // the version the profile describes.
 func TestLintVersionMismatch(t *testing.T) {
 	p := section7.Profile{
-		Profile:      section7.Meta{Name: "Test Profile", Version: 1},
-		Requirements: section7.Requirements{},
+		Profile:      section7.Meta{Name: "Test Profile"},
+		Requirements: section7.Requirements{Version: 1},
 	}
 
 	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)

@@ -535,7 +535,7 @@ func backtickAll(values []string) []string {
 func renderProfile(p section7.Profile, raw map[string]interface{}) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("## Certificate Profile: %s (X.509v%d)\n\n", p.Profile.Name, p.Profile.Version))
+	sb.WriteString(fmt.Sprintf("## Certificate Profile: %s (X.509v%d)\n\n", p.Profile.Name, p.Requirements.Version))
 	sb.WriteString("This profile applies only to Subscriber certificates; CA certificates are exempt from these requirements.\n\n")
 
 	// Recognition

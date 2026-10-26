@@ -7,6 +7,8 @@
 # profiles can disagree about it.
 
 requirements:
+  version: v3
+
   signature_algorithm:
     allowed:
       - sha256WithRSAEncryption

@@ -108,8 +108,9 @@ func TestInterpolateText(t *testing.T) {
 // TestValidateProfileValid tests that valid profiles pass validation.
 func TestValidateProfileValid(t *testing.T) {
 	validProfile := &Profile{
-		Profile: Meta{Name: "Test Profile", Version: 3},
+		Profile: Meta{Name: "Test Profile"},
 		Requirements: Requirements{
+			Version:  3,
 			Validity: Validity{MaximumDays: 398},
 			Subject: DistinguishedName{
 				Attributes: map[string]Field{
@@ -197,8 +198,9 @@ func TestValidateProfileInvalidExtension(t *testing.T) {
 // TestValidateProfileMultipleErrors tests that all errors are reported.
 func TestValidateProfileMultipleErrors(t *testing.T) {
 	invalidProfile := &Profile{
-		Profile: Meta{Name: "Bad Profile", Version: 3},
+		Profile: Meta{Name: "Bad Profile"},
 		Requirements: Requirements{
+			Version:  3,
 			Validity: Validity{MaximumDays: 398},
 			Subject: DistinguishedName{
 				Attributes: map[string]Field{
@@ -244,6 +246,53 @@ func TestValidateProfileRequiresValidity(t *testing.T) {
 
 // ---------- Helpers ----------
 
+// TestVersionSpellings verifies requirements.version accepts only v1, v2 and
+// v3, and profile.version accepts only a positive integer.
+func TestVersionSpellings(t *testing.T) {
+	tests := []struct {
+		name, profileVersion, certVersion string
+		wantErr                           string
+	}{
+		{"both valid", "7", "v3", ""},
+		{"v1", "1", "v1", ""},
+		{"bare number", "1", "3", "must be v1, v2 or v3"},
+		{"quoted number", "1", `"3"`, "must be v1, v2 or v3"},
+		{"v4", "1", "v4", "must be v1, v2 or v3"},
+		{"profile v-prefix", "v3", "v3", "must be a positive integer"},
+		{"profile float", "1.5", "v3", "must be a positive integer"},
+		{"profile quoted", `"2"`, "v3", "must be a positive integer"},
+		{"profile zero", "0", "v3", "must be a positive integer"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "p.yaml")
+			doc := "profile:\n  name: Versions\n  version: " + tt.profileVersion +
+				"\nrequirements:\n  version: " + tt.certVersion + "\n"
+			if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
+				t.Fatalf("writing profile: %v", err)
+			}
+			_, err := Load(path)
+			switch {
+			case tt.wantErr == "" && err != nil:
+				t.Errorf("should load, got: %v", err)
+			case tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)):
+				t.Errorf("should fail with %q, got: %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+// TestValidateProfileRequiresVersion verifies the certificate version must be
+// stated, as the validity period must.
+func TestValidateProfileRequiresVersion(t *testing.T) {
+	errs := ValidateProfile(&Profile{
+		Requirements: Requirements{Validity: Validity{MaximumDays: 398}},
+	})
+	if len(errs) != 1 || !strings.Contains(errs[0], "requirements.version is missing") {
+		t.Errorf("an unstated certificate version should be reported, got: %v", errs)
+	}
+}
+
 // loadYAML writes a profile to a temp file and loads it.
 func loadYAML(t *testing.T, yaml string) *Loaded {
 	t.Helper()
@@ -266,8 +315,8 @@ func TestGeneralNameValuesAccepted(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: SAN Values
-  version: 3
 requirements:
+  version: v3
   validity:
     maximum_days: 398
   extensions:
@@ -296,8 +345,8 @@ func TestGeneralNameAliasesAccepted(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: SAN Aliases
-  version: 3
 requirements:
+  version: v3
   validity:
     maximum_days: 398
   extensions:
@@ -422,8 +471,8 @@ func TestPresenceParsing(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Presence
-  version: 3
 requirements:
+  version: v3
   validity:
     maximum_days: 398
   extensions:
@@ -693,8 +742,8 @@ profile:
   name: Arcs
   recognized_by:
     policy_oid: 2.23.140.1.2.1
-  version: 3
 requirements:
+  version: v3
   validity:
     maximum_days: 398
   extensions:
@@ -777,8 +826,8 @@ func TestSubjectAttributeCanonicalKeys(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Canonical Keys
-  version: 3
 requirements:
+  version: v3
   validity:
     maximum_days: 398
   subject:
@@ -805,8 +854,8 @@ func TestSubjectAttributeAliases(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Aliases
-  version: 3
 requirements:
+  version: v3
   validity:
     maximum_days: 398
   subject:
@@ -878,8 +927,8 @@ func TestCriticalityParsing(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Criticality
-  version: 3
 requirements:
+  version: v3
   validity:
     maximum_days: 398
   extensions:
@@ -972,8 +1021,8 @@ func TestAccessDescriptionsParse(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: AIA
-  version: 3
 requirements:
+  version: v3
   validity:
     maximum_days: 398
   extensions:
@@ -1124,8 +1173,8 @@ func TestExtensionRequiredIsBoolean(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Extension Shape
-  version: 3
 requirements:
+  version: v3
   validity:
     maximum_days: 398
   extensions:
@@ -1256,8 +1305,8 @@ func TestSubjectNestedAttributesParse(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Nested Subject
-  version: 3
 requirements:
+  version: v3
   validity:
     maximum_days: 398
   subject:
@@ -1418,8 +1467,8 @@ func TestAlgorithmsAccepted(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Algorithms
-  version: 3
 requirements:
+  version: v3
   validity:
     maximum_days: 398
   signature_algorithm:
@@ -1562,6 +1611,7 @@ func TestExtendsInheritsAndOverrides(t *testing.T) {
 	loaded := loadFiles(t, "child.yaml", map[string]string{
 		"_base.yaml": `
 requirements:
+  version: v3
   validity:
     maximum_days: 398
   subject:
@@ -1578,7 +1628,7 @@ requirements:
 extends: _base.yaml
 profile:
   name: Child
-  version: 3
+  version: 2
 requirements:
   validity:
     maximum_days: 200
@@ -1605,6 +1655,12 @@ requirements:
 	}
 	if !req.Subject.Attributes["country_name"].Required {
 		t.Error("country_name's required flag should be inherited from the base")
+	}
+	if req.Version != 3 {
+		t.Errorf("requirements.version should be inherited from the base, got %v", req.Version)
+	}
+	if loaded.Profile.Profile.Version != 2 {
+		t.Errorf("profile.version should be the profile's own revision, got %v", loaded.Profile.Profile.Version)
 	}
 	for _, attr := range []string{"country_name", "common_name"} {
 		if _, ok := req.Subject.Attributes[attr]; !ok {

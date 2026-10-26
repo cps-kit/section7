@@ -25,7 +25,46 @@ type Profile struct {
 type Meta struct {
 	Name         string       `yaml:"name"`
 	RecognizedBy RecognizedBy `yaml:"recognized_by"`
-	Version      int          `yaml:"version"`
+	// Version is the revision of the profile document itself, not the X.509
+	// version of the certificates it describes.
+	Version ProfileVersion `yaml:"version"`
+}
+
+// ProfileVersion is the revision number of a profile document. It is written
+// in YAML as a positive integer; zero means the profile does not state one.
+type ProfileVersion int
+
+// UnmarshalYAML accepts only a positive integer, so that a float or a quoted
+// number is reported rather than silently converted.
+func (v *ProfileVersion) UnmarshalYAML(node *yaml.Node) error {
+	var n int
+	if node.Kind != yaml.ScalarNode || node.ShortTag() != "!!int" || node.Decode(&n) != nil || n <= 0 {
+		return fmt.Errorf("profile 'version' must be a positive integer (got %q)", node.Value)
+	}
+	*v = ProfileVersion(n)
+	return nil
+}
+
+// CertificateVersion is the X.509 version a profile describes. It is written in
+// YAML as `v1`, `v2` or `v3`, and holds the number that crypto/x509 reports.
+type CertificateVersion int
+
+// UnmarshalYAML accepts only `v1`, `v2` or `v3`.
+func (v *CertificateVersion) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode && node.ShortTag() == "!!str" {
+		switch node.Value {
+		case "v1":
+			*v = 1
+			return nil
+		case "v2":
+			*v = 2
+			return nil
+		case "v3":
+			*v = 3
+			return nil
+		}
+	}
+	return fmt.Errorf("requirements 'version' must be v1, v2 or v3 (got %q)", node.Value)
 }
 
 // RecognizedBy describes how certificates issued under this profile can be
@@ -35,9 +74,9 @@ type RecognizedBy struct {
 }
 
 // Requirements describes the certificate a profile permits. The fields are
-// ordered as they appear in the TBSCertificate of RFC 5280; version is stated
-// once, in the profile metadata.
+// ordered as they appear in the TBSCertificate of RFC 5280.
 type Requirements struct {
+	Version            CertificateVersion   `yaml:"version"`
 	SerialNumber       SerialNumber         `yaml:"serial_number"`
 	SignatureAlgorithm SignatureAlgorithm   `yaml:"signature_algorithm"`
 	Issuer             DistinguishedName    `yaml:"issuer"`
@@ -1511,6 +1550,13 @@ func validateTransparency(p *Profile) []string {
 func ValidateProfile(p *Profile) []string {
 	var errs []string
 
+	// A certificate always carries a version, so leaving it unstated would
+	// leave the field unchecked rather than constrained.
+	if p.Requirements.Version <= 0 {
+		errs = append(errs,
+			"requirements.version is missing; a profile must state the X.509 version it describes")
+	}
+
 	// The validity period is a bound rather than a list, so leaving it out has
 	// no strict reading the way an empty list does: it would simply go
 	// unchecked. A profile must therefore state it.
@@ -1958,7 +2004,7 @@ var (
 	topLevelKeys           = keys("profile", "requirements", "rules")
 	profileKeys            = keys("name", "version", "recognized_by")
 	recognizedByKeys       = keys("policy_oid")
-	requirementKeys        = keys("serial_number", "signature_algorithm", "issuer", "validity", "subject", "public_key", "extensions")
+	requirementKeys        = keys("version", "serial_number", "signature_algorithm", "issuer", "validity", "subject", "public_key", "extensions")
 	signatureAlgorithmKeys = keys("allowed")
 	publicKeyKeys          = keys("algorithms")
 	keyAlgorithmKeys       = keys("name", "key_sizes", "curves")

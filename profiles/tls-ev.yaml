@@ -7,7 +7,6 @@ profile:
   name: TLS EV Certificate
   recognized_by:
     policy_oid: 2.23.140.1.1
-  version: 3
 
 requirements:
   subject:

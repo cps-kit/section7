@@ -9,7 +9,7 @@ The linter can validate certificates against the profiles.
 
 A profile describes every field and extension a conforming certificate may contain. The lists are exhaustive: anything a profile does not describe is reported as a violation, so a profile that says nothing about extensions permits none. Permitting something is always an explicit act.
 
-The fields a profile can describe are the certificate version (from `profile.version`), the signature algorithm, the subject public key algorithm with its key sizes or curves, the validity period, the serial number, the issuer and subject distinguished names, and the extensions.
+The fields a profile can describe are the certificate version (`requirements.version`, written as `v1`, `v2` or `v3`), the signature algorithm, the subject public key algorithm with its key sizes or curves, the validity period, the serial number, the issuer and subject distinguished names, and the extensions. The optional `profile.version` is a positive integer recording the revision of the profile document itself.
 
 Files whose name begins with `_` are shared definitions rather than profiles of their own, and are skipped by profile discovery. A profile pulls them in with `extends`, naming one file or several:
 

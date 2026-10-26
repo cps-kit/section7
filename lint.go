@@ -821,7 +821,7 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 	}
 
 	// ---- Version ----
-	if want := p.Profile.Version; want > 0 {
+	if want := int(p.Requirements.Version); want > 0 {
 		if cert.Version == want {
 			add(Info, "VERSION-001", fmt.Sprintf("certificate is X.509v%d OK", cert.Version))
 		} else {
