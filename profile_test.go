@@ -1,4 +1,4 @@
-package profile
+package section7
 
 import (
 	"os"
@@ -111,8 +111,7 @@ func TestValidateProfileValid(t *testing.T) {
 		Profile: Meta{Name: "Test Profile", Version: 3},
 		Requirements: Requirements{
 			Validity: Validity{MaximumDays: 398},
-			Subject: Subject{
-				Required: true,
+			Subject: DistinguishedName{
 				Attributes: map[string]Field{
 					"common_name":       {Required: true},
 					"organization_name": {Required: true},
@@ -139,8 +138,7 @@ func TestValidateProfileInvalidSubjectField(t *testing.T) {
 		Profile: Meta{Name: "Bad Profile", Version: 3},
 		Requirements: Requirements{
 			Validity: Validity{MaximumDays: 398},
-			Subject: Subject{
-				Required: true,
+			Subject: DistinguishedName{
 				Attributes: map[string]Field{
 					"common_name":  {Required: true},
 					"phone_number": {Required: false}, // UNKNOWN
@@ -201,8 +199,7 @@ func TestValidateProfileMultipleErrors(t *testing.T) {
 	invalidProfile := &Profile{
 		Profile: Meta{Name: "Bad Profile", Version: 3},
 		Requirements: Requirements{
-			Subject: Subject{
-				Required: true,
+			Subject: DistinguishedName{
 				Attributes: map[string]Field{
 					"phone_number":  {Required: false}, // UNKNOWN 1
 					"favourite_pet": {Required: false}, // UNKNOWN 2
@@ -766,7 +763,6 @@ profile:
   version: 3
 requirements:
   subject:
-    required: true
     attributes:
       common_name:
         required: true
@@ -793,7 +789,6 @@ profile:
   version: 3
 requirements:
   subject:
-    required: true
     attributes:
       country:
         required: true
@@ -1237,7 +1232,6 @@ profile:
   version: 3
 requirements:
   subject:
-    required: true
     attributes:
       organization_name:
         required: true
@@ -1252,9 +1246,6 @@ requirements:
 `)
 
 	subj := loaded.Profile.Requirements.Subject
-	if !subj.Required {
-		t.Error("requirements.subject.required should have been parsed as true")
-	}
 	if len(subj.Attributes) != 2 {
 		t.Fatalf("expected 2 subject attributes, got %d", len(subj.Attributes))
 	}
@@ -1316,7 +1307,6 @@ profile:
   version: 3
 requirements:
   subject:
-    required: true
     bogus: 1
     attributes:
       country:
@@ -1336,6 +1326,34 @@ requirements:
 	}
 }
 
+// TestSubjectRequiredKeyRejected verifies the retired subject-level required
+// key is reported rather than silently ignored.
+func TestSubjectRequiredKeyRejected(t *testing.T) {
+	loaded := loadYAML(t, `
+profile:
+  name: Retired Subject Key
+  version: 3
+requirements:
+  subject:
+    required: true
+    attributes:
+      country:
+        required: true
+`)
+
+	errs := loaded.Validate()
+	found := false
+	for _, err := range errs {
+		if strings.Contains(err, `unrecognized key "required" in requirements.subject`) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("subject-level required should be reported, got: %v", errs)
+	}
+}
+
 // TestSubjectUnknownAttributeKeyRejected verifies unknown keys inside an
 // attribute are caught at the new, deeper path.
 func TestSubjectUnknownAttributeKeyRejected(t *testing.T) {
@@ -1345,7 +1363,6 @@ profile:
   version: 3
 requirements:
   subject:
-    required: true
     attributes:
       country:
         required: true
@@ -1393,7 +1410,6 @@ requirements:
   validity:
     maximum_days: 398
   subject:
-    required: true
     attributes:
       country_name:
         required: true
@@ -1432,8 +1448,8 @@ requirements:
 	if req.Validity.MaximumDays != 200 {
 		t.Errorf("the profile should override the inherited validity, got %d", req.Validity.MaximumDays)
 	}
-	if !req.Subject.Required {
-		t.Error("subject.required should be inherited from the base")
+	if !req.Subject.Attributes["country_name"].Required {
+		t.Error("country_name's required flag should be inherited from the base")
 	}
 	for _, attr := range []string{"country_name", "common_name"} {
 		if _, ok := req.Subject.Attributes[attr]; !ok {

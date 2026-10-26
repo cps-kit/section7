@@ -4,27 +4,26 @@ import (
 	"strings"
 	"testing"
 
-	"section7/internal/profile"
+	"github.com/cps-kit/section7"
 )
 
 // TestRenderProfile tests the basic profile rendering functionality.
 func TestRenderProfile(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Validity: profile.Validity{MaximumDays: 398},
-			Subject: profile.Subject{
-				Required: true,
-				Attributes: map[string]profile.Field{
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Validity: section7.Validity{MaximumDays: 398},
+			Subject: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
 					"common_name":       {Required: true},
-					"organization_name": {Required: true, Length: profile.FieldLength{Min: intPtr(1), Max: intPtr(64)}},
+					"organization_name": {Required: true, Length: section7.FieldLength{Min: intPtr(1), Max: intPtr(64)}},
 				},
 			},
-			Extensions: map[string]profile.Extension{
-				"basic_constraints": {Critical: profile.CriticalityRequired},
+			Extensions: map[string]section7.Extension{
+				"basic_constraints": {Critical: section7.CriticalityRequired},
 			},
 		},
-		Rules: []profile.Rule{
+		Rules: []section7.Rule{
 			{ID: "TEST-001", Text: "Test rule with {profile.name}"},
 		},
 	}
@@ -60,14 +59,13 @@ func TestRenderProfile(t *testing.T) {
 
 // TestRenderProfileWithLengthConstraints tests rendering with min/max length.
 func TestRenderProfileWithLengthConstraints(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Length Test", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: profile.Subject{
-				Required: true,
-				Attributes: map[string]profile.Field{
-					"country":           {Required: true, Length: profile.FieldLength{Min: intPtr(2), Max: intPtr(2)}},
-					"organization_name": {Required: true, Length: profile.FieldLength{Min: intPtr(1), Max: intPtr(64)}},
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Length Test", Version: 3},
+		Requirements: section7.Requirements{
+			Subject: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
+					"country":           {Required: true, Length: section7.FieldLength{Min: intPtr(2), Max: intPtr(2)}},
+					"organization_name": {Required: true, Length: section7.FieldLength{Min: intPtr(1), Max: intPtr(64)}},
 				},
 			},
 		},
@@ -89,12 +87,12 @@ func TestRenderProfileWithLengthConstraints(t *testing.T) {
 // TestRenderProfileExtensionDetails tests extension details rendering.
 func TestRenderProfileExtensionDetails(t *testing.T) {
 	ca := false
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Ext Test", Version: 3},
-		Requirements: profile.Requirements{
-			Extensions: map[string]profile.Extension{
-				"basic_constraints":  {Required: profile.PresenceRequired, Critical: profile.CriticalityRequired, CA: &ca},
-				"extended_key_usage": {Required: profile.PresenceRequired, Critical: profile.CriticalityForbidden, RequiredValues: []string{"serverAuth", "clientAuth"}},
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Ext Test", Version: 3},
+		Requirements: section7.Requirements{
+			Extensions: map[string]section7.Extension{
+				"basic_constraints":  {Required: section7.PresenceRequired, Critical: section7.CriticalityRequired, CA: &ca},
+				"extended_key_usage": {Required: section7.PresenceRequired, Critical: section7.CriticalityForbidden, RequiredValues: []string{"serverAuth", "clientAuth"}},
 			},
 		},
 	}
@@ -129,12 +127,11 @@ func TestRenderProfileExtensionDetails(t *testing.T) {
 
 // TestRenderProfileWithoutLengthConstraints tests rendering without min/max length.
 func TestRenderProfileWithoutLengthConstraints(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "No Length Test", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: profile.Subject{
-				Required: true,
-				Attributes: map[string]profile.Field{
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "No Length Test", Version: 3},
+		Requirements: section7.Requirements{
+			Subject: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
 					"common_name": {Required: true},
 				},
 			},
@@ -148,16 +145,16 @@ func TestRenderProfileWithoutLengthConstraints(t *testing.T) {
 	}
 }
 
-// TestRenderProfileSubjectRequired checks the DN-level requirement is spelled out.
-func TestRenderProfileSubjectRequired(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Subject Test", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: profile.Subject{
-				Required: true,
-				Attributes: map[string]profile.Field{
-					"country":           {Required: true, Length: profile.FieldLength{Min: intPtr(2), Max: intPtr(2)}},
-					"organization_name": {Required: true, Length: profile.FieldLength{Min: intPtr(1), Max: intPtr(64)}},
+// TestRenderProfileSubjectWithRequiredAttributes checks a required attribute
+// makes the subject mandatory in prose.
+func TestRenderProfileSubjectWithRequiredAttributes(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Subject Test", Version: 3},
+		Requirements: section7.Requirements{
+			Subject: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
+					"country":           {Required: true, Length: section7.FieldLength{Min: intPtr(2), Max: intPtr(2)}},
+					"organization_name": {Required: true, Length: section7.FieldLength{Min: intPtr(1), Max: intPtr(64)}},
 				},
 			},
 		},
@@ -166,7 +163,7 @@ func TestRenderProfileSubjectRequired(t *testing.T) {
 	rendered := renderProfile(p, map[string]interface{}{})
 
 	if !strings.Contains(rendered, "The subject field MUST contain a non-empty RDNSequence") {
-		t.Errorf("a required subject should be stated in prose, got:\n%s", rendered)
+		t.Errorf("a subject with required attributes should be stated as mandatory, got:\n%s", rendered)
 	}
 	if !strings.Contains(rendered, "The following attributes MUST be present: `countryName`, `organizationName`.") {
 		t.Errorf("required attributes should be listed in prose, got:\n%s", rendered)
@@ -179,14 +176,14 @@ func TestRenderProfileSubjectRequired(t *testing.T) {
 	}
 }
 
-// TestRenderProfileSubjectOptional checks the optional-DN wording.
-func TestRenderProfileSubjectOptional(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Optional Subject", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: profile.Subject{
-				Required: false,
-				Attributes: map[string]profile.Field{
+// TestRenderProfileSubjectWithoutRequiredAttributes checks the wording when the
+// subject may be empty.
+func TestRenderProfileSubjectWithoutRequiredAttributes(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Optional Subject", Version: 3},
+		Requirements: section7.Requirements{
+			Subject: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
 					"country": {Required: false},
 				},
 			},
@@ -196,19 +193,23 @@ func TestRenderProfileSubjectOptional(t *testing.T) {
 	rendered := renderProfile(p, map[string]interface{}{})
 
 	if !strings.Contains(rendered, "The subject field MAY contain an empty RDNSequence") {
-		t.Errorf("an optional subject should be stated in prose, got:\n%s", rendered)
+		t.Errorf("a subject without required attributes should be stated as optional, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "MUST include a Subject Alternative Name extension marked critical") {
+		t.Errorf("an empty subject should require a critical SAN, got:\n%s", rendered)
 	}
 	if strings.Contains(rendered, "The following attributes MUST be present") {
 		t.Error("no attributes are required, so no such sentence should be rendered")
 	}
 }
 
-// TestRenderProfileEmptyExtensions tests rendering with no extensions.
+// TestRenderProfileEmptyExtensions tests rendering with no extensions and no
+// subject attributes.
 func TestRenderProfileEmptyExtensions(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Empty Ext Test", Version: 3},
-		Requirements: profile.Requirements{
-			Validity: profile.Validity{MaximumDays: 398},
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Empty Ext Test", Version: 3},
+		Requirements: section7.Requirements{
+			Validity: section7.Validity{MaximumDays: 398},
 		},
 	}
 
@@ -217,33 +218,11 @@ func TestRenderProfileEmptyExtensions(t *testing.T) {
 	if strings.Contains(rendered, "### Extensions") {
 		t.Error("rendered profile should not have Extensions section when empty")
 	}
-	if strings.Contains(rendered, "### Subject DN Requirements") {
-		t.Error("rendered profile should not have Subject section when empty")
+	if !strings.Contains(rendered, "The subject field MUST be an empty RDNSequence") {
+		t.Errorf("a profile listing no subject attributes should require an empty subject, got:\n%s", rendered)
 	}
-}
-
-// TestRenderProfileSubjectRequiredAllowEmpty checks that allow_empty changes the DN-level wording.
-func TestRenderProfileSubjectRequiredAllowEmpty(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Allow Empty Subject", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: profile.Subject{
-				Required:   true,
-				AllowEmpty: true,
-				Attributes: map[string]profile.Field{
-					"country": {Required: true, Length: profile.FieldLength{Min: intPtr(2), Max: intPtr(2)}},
-				},
-			},
-		},
-	}
-
-	rendered := renderProfile(p, map[string]interface{}{})
-
-	if !strings.Contains(rendered, "The subject field MAY be empty. If it is present, it MUST contain a non-empty RDNSequence") {
-		t.Errorf("an allow-empty subject should be stated in prose, got:\n%s", rendered)
-	}
-	if strings.Contains(rendered, "The subject field MUST contain a non-empty RDNSequence") {
-		t.Errorf("allow_empty should suppress the mandatory non-empty wording, got:\n%s", rendered)
+	if !strings.Contains(rendered, "MUST include a Subject Alternative Name extension marked critical") {
+		t.Errorf("an empty subject should require a critical SAN, got:\n%s", rendered)
 	}
 }
 
