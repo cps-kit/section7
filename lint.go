@@ -602,13 +602,10 @@ func durationDays(d time.Duration) string {
 }
 
 // signatureFindings checks the algorithm a certificate is signed with against
-// the algorithms a profile permits.
+// the algorithms a profile permits. The list is exhaustive, and a profile that
+// lists none permits none.
 func signatureFindings(cert *x509.Certificate, req SignatureAlgorithm) []Finding {
 	var findings []Finding
-
-	if len(req.Allowed) == 0 {
-		return findings
-	}
 
 	add := func(sev Severity, ruleID, msg string) {
 		findings = append(findings, Finding{RuleID: ruleID, Severity: sev, Message: msg})
@@ -640,13 +637,10 @@ func signatureFindings(cert *x509.Certificate, req SignatureAlgorithm) []Finding
 }
 
 // publicKeyFindings checks the subject public key against the algorithms, key
-// sizes and curves a profile permits.
+// sizes and curves a profile permits. The list is exhaustive, and a profile
+// that lists none permits none.
 func publicKeyFindings(cert *x509.Certificate, req PublicKey) []Finding {
 	var findings []Finding
-
-	if len(req.Algorithms) == 0 {
-		return findings
-	}
 
 	add := func(sev Severity, ruleID, msg string) {
 		findings = append(findings, Finding{RuleID: ruleID, Severity: sev, Message: msg})

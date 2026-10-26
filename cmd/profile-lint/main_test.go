@@ -993,6 +993,27 @@ func TestLintEmptyIssuerRejected(t *testing.T) {
 	}
 }
 
+// TestLintProfileWithoutAlgorithmsPermitsNone verifies that an unstated
+// algorithm list is the strict answer, as it is for extensions and attributes:
+// a certificate is signed with some algorithm and carries some key, and a
+// profile that names neither describes no certificate at all.
+func TestLintProfileWithoutAlgorithmsPermitsNone(t *testing.T) {
+	p := section7.Profile{
+		Profile:      section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{},
+	}
+
+	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
+	findings := lint(cert, p)
+
+	if !hasFinding(findings, "SIGALG-001", Error) {
+		t.Error("a profile listing no signature algorithms must permit none")
+	}
+	if !hasFinding(findings, "PUBKEY-001", Error) {
+		t.Error("a profile listing no public key algorithms must permit none")
+	}
+}
+
 // ---------- Serial number ----------
 
 func TestLintSerialNumberRequiredOK(t *testing.T) {
@@ -1210,8 +1231,10 @@ func aiaProfile(descriptions ...section7.AccessDescription) section7.Profile {
 	return section7.Profile{
 		Profile: section7.Meta{Name: "Test Profile", Version: 3},
 		Requirements: section7.Requirements{
-			Issuer:  fixtureDN(),
-			Subject: fixtureDN(),
+			SignatureAlgorithm: fixtureSignature(),
+			PublicKey:          fixtureKey(),
+			Issuer:             fixtureDN(),
+			Subject:            fixtureDN(),
 			Extensions: map[string]section7.Extension{
 				"authority_information_access": {
 					Required:           section7.PresenceRequired,
@@ -1494,8 +1517,10 @@ func policyArcProfile() section7.Profile {
 	return section7.Profile{
 		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
-			Issuer:  fixtureDN(),
-			Subject: fixtureDN(),
+			SignatureAlgorithm: fixtureSignature(),
+			PublicKey:          fixtureKey(),
+			Issuer:             fixtureDN(),
+			Subject:            fixtureDN(),
 			Extensions: map[string]section7.Extension{
 				"certificate_policies": {
 					Required:       section7.PresenceRequired,
@@ -1572,8 +1597,10 @@ func ctProfile() section7.Profile {
 	return section7.Profile{
 		Profile: section7.Meta{Name: "Test Profile", Version: 3},
 		Requirements: section7.Requirements{
-			Issuer:  fixtureDN(),
-			Subject: fixtureDN(),
+			SignatureAlgorithm: fixtureSignature(),
+			PublicKey:          fixtureKey(),
+			Issuer:             fixtureDN(),
+			Subject:            fixtureDN(),
 			Extensions: map[string]section7.Extension{
 				"signed_certificate_timestamps": {Required: section7.PresenceFinalOnly},
 				"precertificate_poison": {
@@ -1786,8 +1813,10 @@ func sanProfile(required, optional []string) section7.Profile {
 	return section7.Profile{
 		Profile: section7.Meta{Name: "Test Profile", Version: 3},
 		Requirements: section7.Requirements{
-			Issuer:  fixtureDN(),
-			Subject: fixtureDN(),
+			SignatureAlgorithm: fixtureSignature(),
+			PublicKey:          fixtureKey(),
+			Issuer:             fixtureDN(),
+			Subject:            fixtureDN(),
 			Extensions: map[string]section7.Extension{
 				"subject_alt_name": {
 					Required:       section7.PresenceRequired,
@@ -1893,8 +1922,10 @@ func crldpProfile(dps ...section7.DistributionPoint) section7.Profile {
 	return section7.Profile{
 		Profile: section7.Meta{Name: "Test Profile", Version: 3},
 		Requirements: section7.Requirements{
-			Issuer:  fixtureDN(),
-			Subject: fixtureDN(),
+			SignatureAlgorithm: fixtureSignature(),
+			PublicKey:          fixtureKey(),
+			Issuer:             fixtureDN(),
+			Subject:            fixtureDN(),
 			Extensions: map[string]section7.Extension{
 				"crl_distribution_points": {
 					Required:           section7.PresenceRequired,
@@ -2183,5 +2214,23 @@ func TestSubjectValuesCoversUnstructuredAttributes(t *testing.T) {
 func fixtureDN() section7.DistinguishedName {
 	return section7.DistinguishedName{
 		Attributes: map[string]section7.Field{"common_name": {}},
+	}
+}
+
+// fixtureSignature and fixtureKey describe how the fixture certificates are
+// signed and keyed. A profile used with them has to say so: an algorithm a
+// profile does not list is not permitted.
+func fixtureSignature() section7.SignatureAlgorithm {
+	return section7.SignatureAlgorithm{
+		Allowed: []string{"sha256WithRSAEncryption", "ecdsa-with-SHA256"},
+	}
+}
+
+func fixtureKey() section7.PublicKey {
+	return section7.PublicKey{
+		Algorithms: []section7.KeyAlgorithm{
+			{Name: "rsaEncryption", KeySizes: []int{2048}},
+			{Name: "id-ecPublicKey", Curves: []string{"P-256"}},
+		},
 	}
 }
