@@ -203,6 +203,42 @@ func TestRenderProfileSubjectWithoutRequiredAttributes(t *testing.T) {
 	}
 }
 
+// TestRenderProfileAlgorithmsAndIssuer checks the signature algorithm, public
+// key and issuer sections are rendered when a profile states them.
+func TestRenderProfileAlgorithmsAndIssuer(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Fields Test", Version: 3},
+		Requirements: section7.Requirements{
+			SignatureAlgorithm: section7.SignatureAlgorithm{Allowed: []string{"ecdsa-with-SHA256"}},
+			PublicKey: section7.PublicKey{
+				Algorithms: []section7.KeyAlgorithm{
+					{Name: "rsaEncryption", KeySizes: []int{2048, 4096}},
+					{Name: "id-ecPublicKey", Curves: []string{"P-256"}},
+				},
+			},
+			Issuer: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{"common_name": {Required: true}},
+			},
+		},
+	}
+
+	rendered := renderProfile(p, map[string]interface{}{})
+
+	for _, want := range []string{
+		"### Signature Algorithm",
+		"| ECDSA with SHA-256 | 1.2.840.10045.4.3.2 |",
+		"### Subject Public Key",
+		"| RSA | 1.2.840.113549.1.1.1 | 2048, 4096 | - |",
+		"| Elliptic Curve | 1.2.840.10045.2.1 | - | P-256 |",
+		"### Issuer DN Requirements",
+		"| commonName | CN | 2.5.4.3 | Yes |",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered profile should contain %q, got:\n%s", want, rendered)
+		}
+	}
+}
+
 // TestRenderProfileEmptyExtensions tests rendering with no extensions and no
 // subject attributes.
 func TestRenderProfileEmptyExtensions(t *testing.T) {

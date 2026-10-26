@@ -1382,6 +1382,130 @@ requirements:
 	}
 }
 
+// ---------- Signature and public key algorithms ----------
+
+// TestAlgorithmsAccepted verifies well-formed algorithm requirements validate.
+func TestAlgorithmsAccepted(t *testing.T) {
+	loaded := loadYAML(t, `
+profile:
+  name: Algorithms
+  version: 3
+requirements:
+  signature_algorithm:
+    allowed:
+      - sha256WithRSAEncryption
+      - ecdsa-with-SHA384
+  public_key:
+    algorithms:
+      - name: rsaEncryption
+        key_sizes:
+          - 2048
+          - 4096
+      - name: id-ecPublicKey
+        curves:
+          - P-256
+          - secp384r1
+`)
+
+	if errs := loaded.Validate(); len(errs) > 0 {
+		t.Fatalf("well-formed algorithm requirements should validate, got: %v", errs)
+	}
+
+	req := loaded.Profile.Requirements
+	if len(req.SignatureAlgorithm.Allowed) != 2 {
+		t.Errorf("both signature algorithms should be parsed, got: %v", req.SignatureAlgorithm.Allowed)
+	}
+	if len(req.PublicKey.Algorithms) != 2 {
+		t.Fatalf("both key algorithms should be parsed, got: %v", req.PublicKey.Algorithms)
+	}
+	if got := req.PublicKey.Algorithms[0].KeySizes; len(got) != 2 || got[0] != 2048 {
+		t.Errorf("key sizes should be parsed, got: %v", got)
+	}
+}
+
+// TestUnknownSignatureAlgorithmRejected verifies an algorithm the tools cannot
+// interpret is reported rather than silently ignored.
+func TestUnknownSignatureAlgorithmRejected(t *testing.T) {
+	loaded := loadYAML(t, `
+profile:
+  name: Bad Algorithm
+  version: 3
+requirements:
+  signature_algorithm:
+    allowed:
+      - md5WithRSAAndPrayer
+`)
+
+	errs := loaded.Validate()
+	found := false
+	for _, err := range errs {
+		if strings.Contains(err, "md5WithRSAAndPrayer") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("an unknown signature algorithm should be reported, got: %v", errs)
+	}
+}
+
+// TestPublicKeyParameterMismatchRejected verifies that a parameter given for an
+// algorithm that has no such parameter is reported.
+func TestPublicKeyParameterMismatchRejected(t *testing.T) {
+	loaded := loadYAML(t, `
+profile:
+  name: Wrong Parameters
+  version: 3
+requirements:
+  public_key:
+    algorithms:
+      - name: rsaEncryption
+        curves:
+          - P-256
+      - name: id-ecPublicKey
+        key_sizes:
+          - 256
+      - name: id-ecPublicKey
+        curves:
+          - P-128
+`)
+
+	errs := loaded.Validate()
+	joined := strings.Join(errs, " ")
+	for _, want := range []string{"does not take 'curves'", "not by 'key_sizes'", "unknown curve"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("errors should mention %q, got: %v", want, errs)
+		}
+	}
+}
+
+// TestIssuerAttributesValidated verifies the issuer is held to the same
+// attribute registry as the subject.
+func TestIssuerAttributesValidated(t *testing.T) {
+	loaded := loadYAML(t, `
+profile:
+  name: Bad Issuer
+  version: 3
+requirements:
+  issuer:
+    attributes:
+      common_name:
+        required: true
+      phone_number:
+        required: false
+`)
+
+	errs := loaded.Validate()
+	found := false
+	for _, err := range errs {
+		if strings.Contains(err, "unknown issuer attribute") && strings.Contains(err, "phone_number") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("an unknown issuer attribute should be reported, got: %v", errs)
+	}
+}
+
 // ---------- Inheritance ----------
 
 // loadFiles writes several profile files to one directory and loads entry.

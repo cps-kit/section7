@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -146,10 +149,24 @@ func createEmptySubjectCert(t *testing.T, extra ...pkix.Extension) *x509.Certifi
 
 // TestLintValidCertificate tests linting a certificate that meets all requirements.
 func TestLintValidCertificate(t *testing.T) {
+	ca := false
 	p := section7.Profile{
 		Profile: section7.Meta{Name: "Test Profile", Version: 3},
 		Requirements: section7.Requirements{
+			SignatureAlgorithm: section7.SignatureAlgorithm{
+				Allowed: []string{"sha256WithRSAEncryption"},
+			},
+			PublicKey: section7.PublicKey{
+				Algorithms: []section7.KeyAlgorithm{{Name: "rsaEncryption", KeySizes: []int{2048}}},
+			},
 			Validity: section7.Validity{MaximumDays: 365},
+			Issuer: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
+					"common_name":       {Required: true},
+					"organization_name": {Required: true},
+					"country":           {Required: true},
+				},
+			},
 			Subject: section7.DistinguishedName{
 				Attributes: map[string]section7.Field{
 					"common_name":       {Required: true},
@@ -157,10 +174,15 @@ func TestLintValidCertificate(t *testing.T) {
 					"country":           {Required: true},
 				},
 			},
+			Extensions: map[string]section7.Extension{
+				"basic_constraints":  {Required: section7.PresenceRequired, Critical: section7.CriticalityRequired, CA: &ca},
+				"key_usage":          {Required: section7.PresenceRequired, Critical: section7.CriticalityRequired, RequiredValues: []string{"digitalSignature"}},
+				"extended_key_usage": {Required: section7.PresenceRequired, RequiredValues: []string{"serverAuth"}},
+			},
 		},
 	}
 
-	cert, _ := createTestCert("example.com", "Test Org", "US", 30, false, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+	cert := createParsedTestCert(t, "example.com", "Test Org", "US", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
 
 	findings := section7.Lint(cert, p)
 
@@ -298,7 +320,7 @@ func TestLintSubjectLengthCountsCharactersNotBytes(t *testing.T) {
 	cert, _ := createTestCert("example.com", org, "US", 30, false, nil)
 
 	for _, f := range section7.Lint(cert, p) {
-		if f.Severity == section7.Error {
+		if f.RuleID == "SUBJECT-003" {
 			t.Errorf("a 64-character value must not violate a 64-character limit, got: %s", f)
 		}
 	}
@@ -746,6 +768,231 @@ func TestLintExtensionAcceptedByOID(t *testing.T) {
 	}
 }
 
+// ---------- Version, signature algorithm and public key ----------
+
+// createECCert builds a parsed certificate with an elliptic curve key.
+func createECCert(t *testing.T, curve elliptic.Curve) *x509.Certificate {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(curve, rand.Reader)
+	if err != nil {
+		t.Fatalf("generating key: %v", err)
+	}
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "example.com"},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(30 * 24 * time.Hour),
+		BasicConstraintsValid: true,
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("creating certificate: %v", err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parsing certificate: %v", err)
+	}
+	return cert
+}
+
+// TestLintVersionMismatch verifies the certificate version is checked against
+// the version the profile describes.
+func TestLintVersionMismatch(t *testing.T) {
+	p := section7.Profile{
+		Profile:      section7.Meta{Name: "Test Profile", Version: 1},
+		Requirements: section7.Requirements{},
+	}
+
+	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
+
+	if !hasFinding(lint(cert, p), "VERSION-001", Error) {
+		t.Error("a v3 certificate should not satisfy a profile describing v1")
+	}
+}
+
+// TestLintSignatureAlgorithmNotListed verifies an algorithm outside the
+// profile's list is reported.
+func TestLintSignatureAlgorithmNotListed(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			SignatureAlgorithm: section7.SignatureAlgorithm{Allowed: []string{"ecdsa-with-SHA256"}},
+		},
+	}
+
+	// createParsedTestCert signs with SHA-256 and RSA.
+	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
+
+	if !hasFinding(lint(cert, p), "SIGALG-001", Error) {
+		t.Error("an RSA signature should not satisfy an ECDSA-only profile")
+	}
+}
+
+// TestLintSignatureAlgorithmListed verifies the permitted algorithm passes.
+func TestLintSignatureAlgorithmListed(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			SignatureAlgorithm: section7.SignatureAlgorithm{Allowed: []string{"sha256WithRSAEncryption"}},
+		},
+	}
+
+	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
+
+	findings := lint(cert, p)
+	if hasFinding(findings, "SIGALG-001", Error) {
+		t.Errorf("a permitted signature algorithm must not be reported, got: %v", findings)
+	}
+}
+
+// TestSignatureAlgorithmIdentifiersMustMatch records why the linter does not
+// check that the outer signatureAlgorithm matches the signature field inside
+// the TBSCertificate: crypto/x509 refuses to parse such a certificate, so one
+// can never reach the linter. If that ever changes, the profile states the
+// requirement and this test will say so.
+func TestSignatureAlgorithmIdentifiersMustMatch(t *testing.T) {
+	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
+
+	// AlgorithmIdentifier for sha256WithRSAEncryption. The OID for
+	// sha384WithRSAEncryption differs only in its final byte, so rewriting the
+	// outer copy keeps every length in the encoding intact.
+	sha256RSA := []byte{
+		0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86,
+		0xf7, 0x0d, 0x01, 0x01, 0x0b, 0x05, 0x00,
+	}
+	tampered := bytes.Clone(cert.Raw)
+	last := bytes.LastIndex(tampered, sha256RSA)
+	if last == -1 || bytes.Index(tampered, sha256RSA) == last {
+		t.Fatal("the fixture should carry the algorithm identifier twice")
+	}
+	tampered[last+12] = 0x0c
+
+	if _, err := x509.ParseCertificate(tampered); err == nil {
+		t.Fatal("disagreeing signature algorithm identifiers should not parse; the linter must check this itself")
+	}
+}
+
+// TestLintPublicKeyAlgorithmNotListed verifies a key algorithm outside the
+// profile's list is reported.
+func TestLintPublicKeyAlgorithmNotListed(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			PublicKey: section7.PublicKey{
+				Algorithms: []section7.KeyAlgorithm{{Name: "id-ecPublicKey", Curves: []string{"P-256"}}},
+			},
+		},
+	}
+
+	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
+
+	if !hasFinding(lint(cert, p), "PUBKEY-001", Error) {
+		t.Error("an RSA key should not satisfy an elliptic curve only profile")
+	}
+}
+
+// TestLintPublicKeySizeNotListed verifies a key size outside the profile's
+// list is reported.
+func TestLintPublicKeySizeNotListed(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			PublicKey: section7.PublicKey{
+				Algorithms: []section7.KeyAlgorithm{{Name: "rsaEncryption", KeySizes: []int{4096}}},
+			},
+		},
+	}
+
+	// createParsedTestCert uses a 2048 bit key.
+	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
+
+	if !hasFinding(lint(cert, p), "PUBKEY-002", Error) {
+		t.Error("a 2048 bit key should not satisfy a 4096 bit only profile")
+	}
+}
+
+// TestLintPublicKeyCurve verifies curves are matched, including through an
+// alias spelling.
+func TestLintPublicKeyCurve(t *testing.T) {
+	permitted := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			PublicKey: section7.PublicKey{
+				Algorithms: []section7.KeyAlgorithm{{Name: "id-ecPublicKey", Curves: []string{"secp256r1"}}},
+			},
+		},
+	}
+	forbidden := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			PublicKey: section7.PublicKey{
+				Algorithms: []section7.KeyAlgorithm{{Name: "id-ecPublicKey", Curves: []string{"P-384"}}},
+			},
+		},
+	}
+
+	cert := createECCert(t, elliptic.P256())
+
+	if hasFinding(lint(cert, permitted), "PUBKEY-003", Error) {
+		t.Error("an alias spelling of the certificate's curve should be accepted")
+	}
+	if !hasFinding(lint(cert, forbidden), "PUBKEY-003", Error) {
+		t.Error("a curve outside the profile's list should be reported")
+	}
+}
+
+// TestLintIssuerAttributesChecked verifies the issuer is held to the same
+// exhaustive attribute list as the subject.
+func TestLintIssuerAttributesChecked(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Issuer: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
+					"common_name":       {Required: true},
+					"locality":          {Required: true}, // not present in the fixture
+					"organization_name": {},
+				},
+			},
+		},
+	}
+
+	// The fixture is self-signed, so its issuer carries commonName,
+	// organizationName and countryName.
+	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
+	findings := lint(cert, p)
+
+	if !hasFinding(findings, "ISSUER-001", Error) {
+		t.Error("a missing required issuer attribute should be reported")
+	}
+
+	var unlisted []string
+	for _, f := range findings {
+		if f.RuleID == "ISSUER-004" && f.Severity == Error {
+			unlisted = append(unlisted, f.Message)
+		}
+	}
+	if len(unlisted) != 1 || !strings.Contains(unlisted[0], "countryName") {
+		t.Errorf("countryName should be reported as unlisted in the issuer, got: %v", unlisted)
+	}
+}
+
+// TestLintEmptyIssuerRejected verifies the RFC 5280 rule that the issuer is
+// never empty, whatever the profile says.
+func TestLintEmptyIssuerRejected(t *testing.T) {
+	p := section7.Profile{Profile: section7.Meta{Name: "Test Profile", Version: 3}}
+
+	// Self-signed with an empty subject, so the issuer is empty too.
+	if !hasFinding(lint(createEmptySubjectCert(t), p), "ISSUER-000", Error) {
+		t.Error("an empty issuer should be reported")
+	}
+	if hasFinding(lint(createParsedTestCert(t, "example.com", "Test Org", "US", nil), p), "ISSUER-000", Error) {
+		t.Error("a populated issuer must not be reported as empty")
+	}
+}
+
 // ---------- Serial number ----------
 
 func TestLintSerialNumberRequiredOK(t *testing.T) {
@@ -963,6 +1210,7 @@ func aiaProfile(descriptions ...section7.AccessDescription) section7.Profile {
 	return section7.Profile{
 		Profile: section7.Meta{Name: "Test Profile", Version: 3},
 		Requirements: section7.Requirements{
+			Issuer:  fixtureDN(),
 			Subject: fixtureDN(),
 			Extensions: map[string]section7.Extension{
 				"authority_information_access": {
@@ -1246,6 +1494,7 @@ func policyArcProfile() section7.Profile {
 	return section7.Profile{
 		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
+			Issuer:  fixtureDN(),
 			Subject: fixtureDN(),
 			Extensions: map[string]section7.Extension{
 				"certificate_policies": {
@@ -1323,6 +1572,7 @@ func ctProfile() section7.Profile {
 	return section7.Profile{
 		Profile: section7.Meta{Name: "Test Profile", Version: 3},
 		Requirements: section7.Requirements{
+			Issuer:  fixtureDN(),
 			Subject: fixtureDN(),
 			Extensions: map[string]section7.Extension{
 				"signed_certificate_timestamps": {Required: section7.PresenceFinalOnly},
@@ -1536,6 +1786,7 @@ func sanProfile(required, optional []string) section7.Profile {
 	return section7.Profile{
 		Profile: section7.Meta{Name: "Test Profile", Version: 3},
 		Requirements: section7.Requirements{
+			Issuer:  fixtureDN(),
 			Subject: fixtureDN(),
 			Extensions: map[string]section7.Extension{
 				"subject_alt_name": {
@@ -1642,6 +1893,7 @@ func crldpProfile(dps ...section7.DistributionPoint) section7.Profile {
 	return section7.Profile{
 		Profile: section7.Meta{Name: "Test Profile", Version: 3},
 		Requirements: section7.Requirements{
+			Issuer:  fixtureDN(),
 			Subject: fixtureDN(),
 			Extensions: map[string]section7.Extension{
 				"crl_distribution_points": {

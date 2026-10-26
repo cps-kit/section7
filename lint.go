@@ -1,7 +1,11 @@
 package section7
 
 import (
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/rsa"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/asn1"
 	"fmt"
 	"strings"
@@ -49,17 +53,17 @@ func Counts(findings []Finding) (errors, warnings, infos int) {
 	return
 }
 
-// ---------- Subject field helpers ----------
+// ---------- Distinguished name helpers ----------
 
-// SubjectValues maps canonical profile subject attribute keys to the actual
-// values in the certificate's Subject DN.
+// nameValues maps canonical profile attribute keys to the actual values in a
+// distinguished name.
 //
 // The structured pkix.Name fields are used first, so that certificates which
 // have not been round-tripped through parsing still resolve. Any further
-// attribute types are then taken from Subject.Names, which is what makes
-// attributes outside the structured set (postal codes, business category,
-// jurisdiction fields and so on) visible to the linter.
-func SubjectValues(cert *x509.Certificate) map[string][]string {
+// attribute types are then taken from Names, which is what makes attributes
+// outside the structured set (postal codes, business category, jurisdiction
+// fields and so on) visible to the linter.
+func nameValues(name pkix.Name) map[string][]string {
 	values := map[string][]string{}
 
 	add := func(key string, vals ...string) {
@@ -70,18 +74,18 @@ func SubjectValues(cert *x509.Certificate) map[string][]string {
 		}
 	}
 
-	add("common_name", cert.Subject.CommonName)
-	add("serial_number", cert.Subject.SerialNumber)
-	add("organization_name", cert.Subject.Organization...)
-	add("organizational_unit_name", cert.Subject.OrganizationalUnit...)
-	add("country_name", cert.Subject.Country...)
-	add("state_or_province_name", cert.Subject.Province...)
-	add("locality_name", cert.Subject.Locality...)
-	add("street_address", cert.Subject.StreetAddress...)
-	add("postal_code", cert.Subject.PostalCode...)
+	add("common_name", name.CommonName)
+	add("serial_number", name.SerialNumber)
+	add("organization_name", name.Organization...)
+	add("organizational_unit_name", name.OrganizationalUnit...)
+	add("country_name", name.Country...)
+	add("state_or_province_name", name.Province...)
+	add("locality_name", name.Locality...)
+	add("street_address", name.StreetAddress...)
+	add("postal_code", name.PostalCode...)
 
 	// Fill in any attribute type not covered by the structured fields.
-	for _, atv := range cert.Subject.Names {
+	for _, atv := range name.Names {
 		key := SubjectAttributeName(atv.Type.String())
 		if key == "" {
 			// Not a well-known attribute; key it by OID so that profiles
@@ -99,6 +103,18 @@ func SubjectValues(cert *x509.Certificate) map[string][]string {
 	}
 
 	return values
+}
+
+// SubjectValues maps canonical profile subject attribute keys to the actual
+// values in the certificate's Subject DN.
+func SubjectValues(cert *x509.Certificate) map[string][]string {
+	return nameValues(cert.Subject)
+}
+
+// IssuerValues maps canonical profile attribute keys to the actual values in
+// the certificate's Issuer DN.
+func IssuerValues(cert *x509.Certificate) map[string][]string {
+	return nameValues(cert.Issuer)
 }
 
 // IsPrecertificate reports whether the certificate is an RFC 6962
@@ -322,12 +338,12 @@ func accessMethodDisplay(oid string) string {
 	return oid
 }
 
-// CertSubjectAttributeOIDs returns the OIDs of every attribute type present in
-// the certificate's Subject DN, de-duplicated and in a stable order.
-func CertSubjectAttributeOIDs(cert *x509.Certificate) []string {
+// nameAttributeOIDs returns the OIDs of every attribute type present in a
+// distinguished name, de-duplicated and in a stable order.
+func nameAttributeOIDs(name pkix.Name) []string {
 	var oids []string
 	seen := map[string]bool{}
-	for _, atv := range cert.Subject.Names {
+	for _, atv := range name.Names {
 		oid := atv.Type.String()
 		if !seen[oid] {
 			seen[oid] = true
@@ -335,6 +351,18 @@ func CertSubjectAttributeOIDs(cert *x509.Certificate) []string {
 		}
 	}
 	return oids
+}
+
+// CertSubjectAttributeOIDs returns the OIDs of every attribute type present in
+// the certificate's Subject DN, de-duplicated and in a stable order.
+func CertSubjectAttributeOIDs(cert *x509.Certificate) []string {
+	return nameAttributeOIDs(cert.Subject)
+}
+
+// CertIssuerAttributeOIDs returns the OIDs of every attribute type present in
+// the certificate's Issuer DN, de-duplicated and in a stable order.
+func CertIssuerAttributeOIDs(cert *x509.Certificate) []string {
+	return nameAttributeOIDs(cert.Issuer)
 }
 
 // subjectAttrDisplay renders a subject attribute OID as "name (oid)" when the
@@ -355,10 +383,10 @@ func extensionDisplay(oid string) string {
 	return oid
 }
 
-// isEmptySubject reports whether the certificate's Subject DN is an empty
-// SEQUENCE, i.e. carries no attributes at all.
-func isEmptySubject(cert *x509.Certificate) bool {
-	for _, vals := range SubjectValues(cert) {
+// isEmptyName reports whether a distinguished name is an empty SEQUENCE, i.e.
+// carries no attributes at all.
+func isEmptyName(name pkix.Name) bool {
+	for _, vals := range nameValues(name) {
 		for _, v := range vals {
 			if v != "" {
 				return false
@@ -366,7 +394,81 @@ func isEmptySubject(cert *x509.Certificate) bool {
 		}
 	}
 	// Any attribute type outside the well-known set still counts as present.
-	return len(cert.Subject.Names) == 0
+	return len(name.Names) == 0
+}
+
+// ---------- Algorithm helpers ----------
+
+// CertSignatureAlgorithmOID returns the OID of the signature algorithm inside
+// the TBSCertificate, which is the copy the signature covers.
+//
+// The raw DER is walked rather than mapping x509.SignatureAlgorithm back to an
+// OID, so that an algorithm Go does not recognize is still reported by OID
+// instead of disappearing. RFC 5280 also requires the outer signatureAlgorithm
+// to carry the same value; crypto/x509 refuses to parse a certificate where
+// the two disagree, so a certificate reaching the linter has already been held
+// to that rule.
+func CertSignatureAlgorithmOID(cert *x509.Certificate) (string, bool) {
+	var certificate asn1.RawValue
+	if _, err := asn1.Unmarshal(cert.Raw, &certificate); err != nil {
+		return "", false
+	}
+
+	// Certificate ::= SEQUENCE { tbsCertificate, signatureAlgorithm, signatureValue }
+	var tbsCertificate asn1.RawValue
+	if _, err := asn1.Unmarshal(certificate.Bytes, &tbsCertificate); err != nil {
+		return "", false
+	}
+
+	// TBSCertificate ::= SEQUENCE { version [0] EXPLICIT ... OPTIONAL,
+	//                               serialNumber, signature, ... }
+	body := tbsCertificate.Bytes
+	var field asn1.RawValue
+	body, err := asn1.Unmarshal(body, &field)
+	if err != nil {
+		return "", false
+	}
+	if field.Class == asn1.ClassContextSpecific && field.Tag == 0 {
+		// The version is present; the serial number follows it.
+		if body, err = asn1.Unmarshal(body, &field); err != nil {
+			return "", false
+		}
+	}
+
+	var ai struct {
+		Algorithm  asn1.ObjectIdentifier
+		Parameters asn1.RawValue `asn1:"optional"`
+	}
+	if _, err := asn1.Unmarshal(body, &ai); err != nil {
+		return "", false
+	}
+	return ai.Algorithm.String(), true
+}
+
+// PublicKeyInfo describes the subject public key of a certificate in the terms
+// a profile uses to constrain it.
+type PublicKeyInfo struct {
+	// OID identifies the public key algorithm.
+	OID string
+	// Bits is the key size, for algorithms whose keys have a variable size.
+	Bits int
+	// Curve names the elliptic curve, for elliptic curve keys.
+	Curve string
+}
+
+// CertPublicKey describes the certificate's subject public key. The second
+// result reports whether the key algorithm was recognized.
+func CertPublicKey(cert *x509.Certificate) (PublicKeyInfo, bool) {
+	switch key := cert.PublicKey.(type) {
+	case *rsa.PublicKey:
+		return PublicKeyInfo{OID: "1.2.840.113549.1.1.1", Bits: key.N.BitLen()}, true
+	case *ecdsa.PublicKey:
+		return PublicKeyInfo{OID: ECPublicKeyOID, Curve: key.Curve.Params().Name}, true
+	case ed25519.PublicKey:
+		return PublicKeyInfo{OID: "1.3.101.112"}, true
+	default:
+		return PublicKeyInfo{}, false
+	}
 }
 
 // ---------- Extension helpers ----------
@@ -499,6 +601,195 @@ func durationDays(d time.Duration) string {
 	return fmt.Sprintf("%d days %s", days, rest.Round(time.Second))
 }
 
+// signatureFindings checks the algorithm a certificate is signed with against
+// the algorithms a profile permits.
+func signatureFindings(cert *x509.Certificate, req SignatureAlgorithm) []Finding {
+	var findings []Finding
+
+	if len(req.Allowed) == 0 {
+		return findings
+	}
+
+	add := func(sev Severity, ruleID, msg string) {
+		findings = append(findings, Finding{RuleID: ruleID, Severity: sev, Message: msg})
+	}
+
+	oid, ok := CertSignatureAlgorithmOID(cert)
+	if !ok {
+		add(Error, "SIGALG-001", "the certificate's signature algorithm could not be read")
+		return findings
+	}
+
+	for _, name := range req.Allowed {
+		allowedOID, known := SignatureAlgorithmOID(name)
+		if !known {
+			add(Warning, "SIGALG-001", fmt.Sprintf("unknown signature algorithm '%s' in profile", name))
+			continue
+		}
+		if allowedOID == oid {
+			add(Info, "SIGALG-001", fmt.Sprintf("signature algorithm %s OK",
+				AlgorithmDisplay(SignatureAlgorithmInfo, oid)))
+			return findings
+		}
+	}
+
+	add(Error, "SIGALG-001", fmt.Sprintf(
+		"signature algorithm %s is not listed in the profile",
+		AlgorithmDisplay(SignatureAlgorithmInfo, oid)))
+	return findings
+}
+
+// publicKeyFindings checks the subject public key against the algorithms, key
+// sizes and curves a profile permits.
+func publicKeyFindings(cert *x509.Certificate, req PublicKey) []Finding {
+	var findings []Finding
+
+	if len(req.Algorithms) == 0 {
+		return findings
+	}
+
+	add := func(sev Severity, ruleID, msg string) {
+		findings = append(findings, Finding{RuleID: ruleID, Severity: sev, Message: msg})
+	}
+
+	info, known := CertPublicKey(cert)
+	if !known {
+		add(Error, "PUBKEY-001", "the certificate's subject public key algorithm is not recognized")
+		return findings
+	}
+	display := AlgorithmDisplay(KeyAlgorithmInfo, info.OID)
+
+	for _, alg := range req.Algorithms {
+		allowedOID, ok := KeyAlgorithmOID(alg.Name)
+		if !ok {
+			add(Warning, "PUBKEY-001", fmt.Sprintf("unknown public key algorithm '%s' in profile", alg.Name))
+			continue
+		}
+		if allowedOID != info.OID {
+			continue
+		}
+
+		add(Info, "PUBKEY-001", fmt.Sprintf("public key algorithm %s OK", display))
+
+		if len(alg.KeySizes) > 0 {
+			permitted := false
+			for _, size := range alg.KeySizes {
+				if size == info.Bits {
+					permitted = true
+					break
+				}
+			}
+			if permitted {
+				add(Info, "PUBKEY-002", fmt.Sprintf("public key size %d bits OK", info.Bits))
+			} else {
+				add(Error, "PUBKEY-002", fmt.Sprintf(
+					"public key size is %d bits, which is not listed in the profile", info.Bits))
+			}
+		}
+
+		if len(alg.Curves) > 0 {
+			permitted := false
+			for _, curve := range alg.Curves {
+				if canonical, ok := CanonicalCurve(curve); ok && canonical == info.Curve {
+					permitted = true
+					break
+				}
+			}
+			if permitted {
+				add(Info, "PUBKEY-003", fmt.Sprintf("public key curve %s OK", info.Curve))
+			} else {
+				add(Error, "PUBKEY-003", fmt.Sprintf(
+					"public key curve %s is not listed in the profile", info.Curve))
+			}
+		}
+
+		return findings
+	}
+
+	add(Error, "PUBKEY-001", fmt.Sprintf("public key algorithm %s is not listed in the profile", display))
+	return findings
+}
+
+// dnFindings checks one distinguished name against the attributes a profile
+// lists for it. The rule prefix and the noun let the same checks report
+// against either the subject or the issuer.
+func dnFindings(dn DistinguishedName, values map[string][]string, presentOIDs []string, prefix, noun string) []Finding {
+	var findings []Finding
+
+	add := func(sev Severity, ruleID, msg string) {
+		findings = append(findings, Finding{RuleID: ruleID, Severity: sev, Message: msg})
+	}
+
+	fieldNames := make([]string, 0, len(dn.Attributes))
+	for name := range dn.Attributes {
+		fieldNames = append(fieldNames, name)
+	}
+	SortAttributeKeys(fieldNames)
+	for _, fieldName := range fieldNames {
+		req := dn.Attributes[fieldName]
+		// Profile keys may be aliases or raw OIDs; resolve to the key that
+		// nameValues uses.
+		lookup, known := CanonicalSubjectAttribute(fieldName)
+		if !known {
+			lookup = fieldName
+		}
+		vals := values[lookup]
+		present := len(vals) > 0 && vals[0] != ""
+
+		// Findings name the attribute as it appears in RFC 5280.
+		label := SubjectAttributeLabel(fieldName)
+
+		if req.Required && !present {
+			add(Error, prefix+"-001", fmt.Sprintf("required %s attribute '%s' is missing", noun, label))
+			continue
+		}
+		if !present {
+			continue
+		}
+
+		// Length checks (apply to first / only value).
+		// Lengths are measured in characters, not bytes: RFC 5280 upper
+		// bounds are expressed as a number of characters, and a non-ASCII
+		// character such as U+2019 would otherwise count as 2-4.
+		val := vals[0]
+		valLen := utf8.RuneCountInString(val)
+		if req.Length.Min != nil && valLen < *req.Length.Min {
+			add(Error, prefix+"-002", fmt.Sprintf(
+				"%s attribute '%s' value %q is shorter than minimum length %d (actual: %d characters)",
+				noun, label, val, *req.Length.Min, valLen))
+		}
+		if req.Length.Max != nil && valLen > *req.Length.Max {
+			add(Error, prefix+"-003", fmt.Sprintf(
+				"%s attribute '%s' value %q exceeds maximum length %d (actual: %d characters)",
+				noun, label, val, *req.Length.Max, valLen))
+		}
+
+		if (req.Length.Min == nil || valLen >= *req.Length.Min) &&
+			(req.Length.Max == nil || valLen <= *req.Length.Max) {
+			add(Info, prefix+"-OK", fmt.Sprintf("%s attribute '%s' OK (%q)", noun, label, val))
+		}
+	}
+
+	// Any attribute present in the certificate but not listed in the profile
+	// is not permitted. The attribute list is exhaustive, and a profile that
+	// lists no attributes permits none: strictness is what a profile gets for
+	// saying nothing.
+	allowed := map[string]bool{}
+	for name := range dn.Attributes {
+		if oid, ok := SubjectAttributeOID(name); ok {
+			allowed[oid] = true
+		}
+	}
+	for _, oid := range presentOIDs {
+		if !allowed[oid] {
+			add(Error, prefix+"-004", fmt.Sprintf(
+				"%s attribute %s is present but not listed in the profile", noun, subjectAttrDisplay(oid)))
+		}
+	}
+
+	return findings
+}
+
 // Lint checks a certificate against a profile and returns all findings.
 func Lint(cert *x509.Certificate, p Profile) []Finding {
 	var findings []Finding
@@ -534,6 +825,22 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 				oid, strings.Join(CertPolicyOIDs(cert), ", ")))
 		}
 	}
+
+	// ---- Version ----
+	if want := p.Profile.Version; want > 0 {
+		if cert.Version == want {
+			add(Info, "VERSION-001", fmt.Sprintf("certificate is X.509v%d OK", cert.Version))
+		} else {
+			add(Error, "VERSION-001", fmt.Sprintf(
+				"certificate is X.509v%d but the profile describes X.509v%d", cert.Version, want))
+		}
+	}
+
+	// ---- Signature algorithm ----
+	findings = append(findings, signatureFindings(cert, p.Requirements.SignatureAlgorithm)...)
+
+	// ---- Subject public key ----
+	findings = append(findings, publicKeyFindings(cert, p.Requirements.PublicKey)...)
 
 	// ---- Validity ----
 	if p.Requirements.Validity.MaximumDays > 0 {
@@ -587,11 +894,10 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 		}
 	}
 
-	// ---- Subject ----
-	subject := p.Requirements.Subject
+	// ---- Subject and issuer ----
 
 	// RFC 5280 4.1.2.6 and 4.2.1.6: an empty subject demands a critical subjectAltName.
-	if isEmptySubject(cert) {
+	if isEmptyName(cert.Subject) {
 		critical, present := extIsCritical(cert, "subject_alt_name")
 		switch {
 		case !present:
@@ -602,75 +908,15 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 			add(Info, "SUBJECT-005", "subject is empty and subjectAltName is critical OK")
 		}
 	}
+	findings = append(findings, dnFindings(
+		p.Requirements.Subject, SubjectValues(cert), CertSubjectAttributeOIDs(cert), "SUBJECT", "subject")...)
 
-	subjValues := SubjectValues(cert)
-	fieldNames := make([]string, 0, len(subject.Attributes))
-	for name := range subject.Attributes {
-		fieldNames = append(fieldNames, name)
+	// RFC 5280 4.1.2.4: the issuer field MUST contain a non-empty distinguished name.
+	if isEmptyName(cert.Issuer) {
+		add(Error, "ISSUER-000", "issuer distinguished name is empty")
 	}
-	SortAttributeKeys(fieldNames)
-	for _, fieldName := range fieldNames {
-		req := subject.Attributes[fieldName]
-		// Profile keys may be aliases or raw OIDs; resolve to the key that
-		// SubjectValues uses.
-		lookup, known := CanonicalSubjectAttribute(fieldName)
-		if !known {
-			lookup = fieldName
-		}
-		vals := subjValues[lookup]
-		present := len(vals) > 0 && vals[0] != ""
-
-		// Findings name the attribute as it appears in RFC 5280.
-		label := SubjectAttributeLabel(fieldName)
-
-		if req.Required && !present {
-			add(Error, "SUBJECT-001", fmt.Sprintf("required subject attribute '%s' is missing", label))
-			continue
-		}
-		if !present {
-			continue
-		}
-
-		// Length checks (apply to first / only value).
-		// Lengths are measured in characters, not bytes: RFC 5280 upper
-		// bounds are expressed as a number of characters, and a non-ASCII
-		// character such as U+2019 would otherwise count as 2-4.
-		val := vals[0]
-		valLen := utf8.RuneCountInString(val)
-		if req.Length.Min != nil && valLen < *req.Length.Min {
-			add(Error, "SUBJECT-002", fmt.Sprintf(
-				"subject attribute '%s' value %q is shorter than minimum length %d (actual: %d characters)",
-				label, val, *req.Length.Min, valLen))
-		}
-		if req.Length.Max != nil && valLen > *req.Length.Max {
-			add(Error, "SUBJECT-003", fmt.Sprintf(
-				"subject attribute '%s' value %q exceeds maximum length %d (actual: %d characters)",
-				label, val, *req.Length.Max, valLen))
-		}
-
-		if (req.Length.Min == nil || valLen >= *req.Length.Min) &&
-			(req.Length.Max == nil || valLen <= *req.Length.Max) {
-			add(Info, "SUBJECT-OK", fmt.Sprintf("subject attribute '%s' OK (%q)", label, val))
-		}
-	}
-
-	// Any attribute present in the certificate but not listed in the
-	// profile is not permitted. The attribute list is exhaustive, and a
-	// profile that lists no attributes permits none: strictness is what a
-	// profile gets for saying nothing.
-	allowedAttrs := map[string]bool{}
-	for name := range subject.Attributes {
-		if oid, ok := SubjectAttributeOID(name); ok {
-			allowedAttrs[oid] = true
-		}
-	}
-	for _, oid := range CertSubjectAttributeOIDs(cert) {
-		if !allowedAttrs[oid] {
-			add(Error, "SUBJECT-004", fmt.Sprintf(
-				"subject attribute %s is present but not listed in the profile",
-				subjectAttrDisplay(oid)))
-		}
-	}
+	findings = append(findings, dnFindings(
+		p.Requirements.Issuer, IssuerValues(cert), CertIssuerAttributeOIDs(cert), "ISSUER", "issuer")...)
 
 	// ---- Extensions ----
 	for _, extName := range ExtensionNames(p.Requirements.Extensions) {
