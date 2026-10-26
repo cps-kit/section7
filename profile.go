@@ -1511,6 +1511,15 @@ func validateTransparency(p *Profile) []string {
 func ValidateProfile(p *Profile) []string {
 	var errs []string
 
+	// The validity period is a bound rather than a list, so leaving it out has
+	// no strict reading the way an empty list does: it would simply go
+	// unchecked. A profile must therefore state it.
+	if p.Requirements.Validity.MaximumDays <= 0 {
+		errs = append(errs,
+			"requirements.validity.maximum_days is missing; a profile must state the maximum "+
+				"validity period it permits, as a number of days greater than zero")
+	}
+
 	// Check recognized_by
 	if oid := p.Profile.RecognizedBy.PolicyOID; oid != "" {
 		if !IsValidOID(oid) {

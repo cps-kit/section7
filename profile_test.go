@@ -199,6 +199,7 @@ func TestValidateProfileMultipleErrors(t *testing.T) {
 	invalidProfile := &Profile{
 		Profile: Meta{Name: "Bad Profile", Version: 3},
 		Requirements: Requirements{
+			Validity: Validity{MaximumDays: 398},
 			Subject: DistinguishedName{
 				Attributes: map[string]Field{
 					"phone_number":  {Required: false}, // UNKNOWN 1
@@ -218,8 +219,10 @@ func TestValidateProfileMultipleErrors(t *testing.T) {
 	}
 }
 
-// TestValidateProfileEmptyRequirements tests that empty requirements are valid.
-func TestValidateProfileEmptyRequirements(t *testing.T) {
+// TestValidateProfileRequiresValidity tests that a profile must state the
+// validity period it permits. Unlike a list of permitted values, a bound that
+// is left out cannot be read strictly; it would simply go unchecked.
+func TestValidateProfileRequiresValidity(t *testing.T) {
 	emptyProfile := &Profile{
 		Profile: Meta{Name: "Empty Profile", Version: 3},
 		Requirements: Requirements{
@@ -228,8 +231,14 @@ func TestValidateProfileEmptyRequirements(t *testing.T) {
 	}
 
 	errs := ValidateProfile(emptyProfile)
-	if len(errs) > 0 {
-		t.Errorf("ValidateProfile on empty requirements should not return errors: %v", errs)
+	found := false
+	for _, err := range errs {
+		if strings.Contains(err, "requirements.validity.maximum_days is missing") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("an unstated validity period should be reported, got: %v", errs)
 	}
 }
 
@@ -259,6 +268,8 @@ profile:
   name: SAN Values
   version: 3
 requirements:
+  validity:
+    maximum_days: 398
   extensions:
     subject_alt_name:
       required: true
@@ -287,6 +298,8 @@ profile:
   name: SAN Aliases
   version: 3
 requirements:
+  validity:
+    maximum_days: 398
   extensions:
     subject_alt_name:
       required: true
@@ -411,6 +424,8 @@ profile:
   name: Presence
   version: 3
 requirements:
+  validity:
+    maximum_days: 398
   extensions:
     basic_constraints:
       required: true
@@ -680,6 +695,8 @@ profile:
     policy_oid: 2.23.140.1.2.1
   version: 3
 requirements:
+  validity:
+    maximum_days: 398
   extensions:
     certificate_policies:
       required: true
@@ -762,6 +779,8 @@ profile:
   name: Canonical Keys
   version: 3
 requirements:
+  validity:
+    maximum_days: 398
   subject:
     attributes:
       common_name:
@@ -788,6 +807,8 @@ profile:
   name: Aliases
   version: 3
 requirements:
+  validity:
+    maximum_days: 398
   subject:
     attributes:
       country:
@@ -859,6 +880,8 @@ profile:
   name: Criticality
   version: 3
 requirements:
+  validity:
+    maximum_days: 398
   extensions:
     basic_constraints:
       required: true
@@ -951,6 +974,8 @@ profile:
   name: AIA
   version: 3
 requirements:
+  validity:
+    maximum_days: 398
   extensions:
     authority_information_access:
       required: true
@@ -1101,6 +1126,8 @@ profile:
   name: Extension Shape
   version: 3
 requirements:
+  validity:
+    maximum_days: 398
   extensions:
     basic_constraints:
       required: true
@@ -1231,6 +1258,8 @@ profile:
   name: Nested Subject
   version: 3
 requirements:
+  validity:
+    maximum_days: 398
   subject:
     attributes:
       organization_name:
@@ -1391,6 +1420,8 @@ profile:
   name: Algorithms
   version: 3
 requirements:
+  validity:
+    maximum_days: 398
   signature_algorithm:
     allowed:
       - sha256WithRSAEncryption
