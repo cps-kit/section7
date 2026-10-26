@@ -10,34 +10,33 @@ import (
 	"strings"
 	"time"
 
-	lintpkg "section7/internal/lint"
-	"section7/internal/profile"
+	"github.com/cps-kit/section7"
 )
 
 // Local aliases onto the shared lint engine, so that this command (and its
 // tests) can keep using short, unqualified names.
 type (
-	Severity = lintpkg.Severity
-	Finding  = lintpkg.Finding
+	Severity = section7.Severity
+	Finding  = section7.Finding
 )
 
 const (
-	Error   = lintpkg.Error
-	Warning = lintpkg.Warning
-	Info    = lintpkg.Info
+	Error   = section7.Error
+	Warning = section7.Warning
+	Info    = section7.Info
 )
 
 var (
-	certPolicyOIDs     = lintpkg.CertPolicyOIDs
-	certMatchesProfile = lintpkg.CertMatchesProfile
-	certEKUOIDs        = lintpkg.CertEKUOIDs
-	ekuDisplay         = lintpkg.EKUDisplay
-	subjectValues      = lintpkg.SubjectValues
-	isPrecertificate   = lintpkg.IsPrecertificate
-	certificateKind    = lintpkg.CertificateKind
+	certPolicyOIDs     = section7.CertPolicyOIDs
+	certMatchesProfile = section7.CertMatchesProfile
+	certEKUOIDs        = section7.CertEKUOIDs
+	ekuDisplay         = section7.EKUDisplay
+	subjectValues      = section7.SubjectValues
+	isPrecertificate   = section7.IsPrecertificate
+	certificateKind    = section7.CertificateKind
 
 	// lint checks a certificate against a profile.
-	lint = lintpkg.Lint
+	lint = section7.Lint
 )
 
 // ---------- Main ----------
@@ -52,7 +51,7 @@ func usage() {
 
 // runProfile lints cert against one loaded profile and prints the report.
 // It returns the number of errors found.
-func runProfile(cert *x509.Certificate, certPath, profilePath string, loaded *profile.Loaded) int {
+func runProfile(cert *x509.Certificate, certPath, profilePath string, loaded *section7.Loaded) int {
 	// Validate that all profile requirements are interpretable
 	if validationErrs := loaded.Validate(); len(validationErrs) > 0 {
 		fmt.Fprintf(os.Stderr, "Error: profile %s has uninterpretable requirements:\n", profilePath)
@@ -77,7 +76,7 @@ func runProfile(cert *x509.Certificate, certPath, profilePath string, loaded *pr
 	for _, f := range findings {
 		fmt.Println(f)
 	}
-	errors, warnings, infos := lintpkg.Counts(findings)
+	errors, warnings, infos := section7.Counts(findings)
 
 	fmt.Println(strings.Repeat("─", 72))
 	fmt.Printf("Result: %d error(s), %d warning(s), %d info finding(s)\n", errors, warnings, infos)
@@ -115,7 +114,7 @@ func main() {
 	// Explicit profile
 	if len(os.Args) == 3 {
 		profilePath := os.Args[2]
-		loaded, err := profile.Load(profilePath)
+		loaded, err := section7.Load(profilePath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error loading profile: %v\n", err)
 			os.Exit(1)
@@ -128,7 +127,7 @@ func main() {
 
 	// Auto-discovery: run every profile whose recognized_by.policy_oid is
 	// present in the certificate.
-	profiles, err := profile.LoadDir("profiles")
+	profiles, err := section7.LoadDir("profiles")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading profiles: %v\n", err)
 		os.Exit(1)

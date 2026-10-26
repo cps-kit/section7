@@ -1,4 +1,4 @@
-package lint
+package section7
 
 import (
 	"crypto/x509"
@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
-
-	"section7/internal/profile"
 )
 
 // ---------- Finding ----------
@@ -84,7 +82,7 @@ func SubjectValues(cert *x509.Certificate) map[string][]string {
 
 	// Fill in any attribute type not covered by the structured fields.
 	for _, atv := range cert.Subject.Names {
-		key := profile.SubjectAttributeName(atv.Type.String())
+		key := SubjectAttributeName(atv.Type.String())
 		if key == "" {
 			// Not a well-known attribute; key it by OID so that profiles
 			// listing it by OID still match.
@@ -107,7 +105,7 @@ func SubjectValues(cert *x509.Certificate) map[string][]string {
 // Precertificate, which is identified by the critical poison extension.
 func IsPrecertificate(cert *x509.Certificate) bool {
 	for _, e := range cert.Extensions {
-		if e.Id.String() == profile.PrecertificatePoisonOID {
+		if e.Id.String() == PrecertificatePoisonOID {
 			return true
 		}
 	}
@@ -130,7 +128,7 @@ func CertificateKind(cert *x509.Certificate) string {
 // x509.Certificate, because those cover only four of the nine alternatives and
 // would leave the rest invisible to the exhaustiveness check.
 func CertGeneralNameTags(cert *x509.Certificate, extName string) ([]int, bool) {
-	extOID, ok := profile.ExtensionOID(extName)
+	extOID, ok := ExtensionOID(extName)
 	if !ok {
 		return nil, false
 	}
@@ -151,7 +149,7 @@ func CertGeneralNameTags(cert *x509.Certificate, extName string) ([]int, bool) {
 }
 
 // DistributionPointInfo records which components a DistributionPoint in a
-// certificate actually uses, so that they can be checked against the profile.
+// certificate actually uses, so that they can be checked against the
 type DistributionPointInfo struct {
 	// FullNameTags are the GeneralName tags appearing in the fullName.
 	FullNameTags []int
@@ -168,7 +166,7 @@ type DistributionPointInfo struct {
 // CertDistributionPoints returns the distribution points of the named CRL
 // extension. The second result reports whether the extension is present.
 func CertDistributionPoints(cert *x509.Certificate, extName string) ([]DistributionPointInfo, bool) {
-	extOID, ok := profile.ExtensionOID(extName)
+	extOID, ok := ExtensionOID(extName)
 	if !ok {
 		return nil, false
 	}
@@ -255,8 +253,8 @@ func generalNameTags(body []byte) []int {
 // generalNameDisplay renders a GeneralName tag as "name [tag]" when the tag is
 // known, and as "[tag]" otherwise.
 func generalNameDisplay(tag int) string {
-	if name := profile.GeneralNameByTag(tag); name != "" {
-		return fmt.Sprintf("'%s' [%d]", profile.GeneralNameLabel(name), tag)
+	if name := GeneralNameByTag(tag); name != "" {
+		return fmt.Sprintf("'%s' [%d]", GeneralNameLabel(name), tag)
 	}
 	return fmt.Sprintf("[%d]", tag)
 }
@@ -264,7 +262,7 @@ func generalNameDisplay(tag int) string {
 // policyDisplay renders a certificate policy OID as "name (oid)" when the OID
 // is well known, and as the bare OID otherwise.
 func policyDisplay(oid string) string {
-	if name := profile.PolicyName(oid); name != "" {
+	if name := PolicyName(oid); name != "" {
 		return fmt.Sprintf("'%s' (%s)", name, oid)
 	}
 	return oid
@@ -287,7 +285,7 @@ type accessDescription struct {
 // information access extension, de-duplicated and in order of first appearance.
 // The second result reports whether the extension itself is present.
 func CertAccessMethodOIDs(cert *x509.Certificate, extName string) ([]string, bool) {
-	extOID, ok := profile.ExtensionOID(extName)
+	extOID, ok := ExtensionOID(extName)
 	if !ok {
 		return nil, false
 	}
@@ -318,7 +316,7 @@ func CertAccessMethodOIDs(cert *x509.Certificate, extName string) ([]string, boo
 // accessMethodDisplay renders an access method OID as "name (oid)" when the OID
 // is well known, and as the bare OID otherwise.
 func accessMethodDisplay(oid string) string {
-	if name := profile.AccessMethodName(oid); name != "" {
+	if name := AccessMethodName(oid); name != "" {
 		return fmt.Sprintf("'%s' (%s)", name, oid)
 	}
 	return oid
@@ -342,8 +340,8 @@ func CertSubjectAttributeOIDs(cert *x509.Certificate) []string {
 // subjectAttrDisplay renders a subject attribute OID as "name (oid)" when the
 // OID is well known, and as the bare OID otherwise.
 func subjectAttrDisplay(oid string) string {
-	if key := profile.SubjectAttributeName(oid); key != "" {
-		return fmt.Sprintf("'%s' (%s)", profile.SubjectAttributeLabel(key), oid)
+	if key := SubjectAttributeName(oid); key != "" {
+		return fmt.Sprintf("'%s' (%s)", SubjectAttributeLabel(key), oid)
 	}
 	return oid
 }
@@ -351,7 +349,7 @@ func subjectAttrDisplay(oid string) string {
 // extensionDisplay renders an extension OID as "name (oid)" when the OID is
 // well known, and as the bare OID otherwise.
 func extensionDisplay(oid string) string {
-	if name := profile.ExtensionName(oid); name != "" {
+	if name := ExtensionName(oid); name != "" {
 		return fmt.Sprintf("'%s' (%s)", name, oid)
 	}
 	return oid
@@ -413,7 +411,7 @@ func CertEKUOIDs(cert *x509.Certificate) []string {
 // EKUDisplay renders an EKU OID as "name (oid)" when the OID is well known,
 // and as the bare OID otherwise.
 func EKUDisplay(oid string) string {
-	if name := profile.ExtKeyUsageName(oid); name != "" {
+	if name := ExtKeyUsageName(oid); name != "" {
 		return fmt.Sprintf("%s (%s)", name, oid)
 	}
 	return oid
@@ -435,7 +433,7 @@ var keyUsageNames = map[string]x509.KeyUsage{
 // whether it is present in the certificate at all. The extension may be named
 // by any key the profile can express: a well-known name or a raw OID.
 func extIsCritical(cert *x509.Certificate, name string) (bool, bool) {
-	oid, ok := profile.ExtensionOID(name)
+	oid, ok := ExtensionOID(name)
 	if !ok {
 		return false, false
 	}
@@ -474,7 +472,7 @@ func CertPolicyOIDs(cert *x509.Certificate) []string {
 
 // CertMatchesProfile reports whether the certificate carries the policy OID by
 // which the profile says its certificates can be recognized.
-func CertMatchesProfile(cert *x509.Certificate, p profile.Profile) bool {
+func CertMatchesProfile(cert *x509.Certificate, p Profile) bool {
 	want := p.Profile.RecognizedBy.PolicyOID
 	if want == "" {
 		return false
@@ -502,7 +500,7 @@ func durationDays(d time.Duration) string {
 }
 
 // Lint checks a certificate against a profile and returns all findings.
-func Lint(cert *x509.Certificate, p profile.Profile) []Finding {
+func Lint(cert *x509.Certificate, p Profile) []Finding {
 	var findings []Finding
 
 	add := func(sev Severity, ruleID, msg string) {
@@ -591,85 +589,92 @@ func Lint(cert *x509.Certificate, p profile.Profile) []Finding {
 
 	// ---- Subject ----
 	subject := p.Requirements.Subject
-	subjectPresent := !isEmptySubject(cert)
 
-	if subject.Required && subjectPresent {
-		add(Info, "SUBJECT-000", "subject distinguished name is present OK")
+	// RFC 5280 4.1.2.6 and 4.2.1.6: an empty subject demands a critical subjectAltName.
+	if isEmptySubject(cert) {
+		critical, present := extIsCritical(cert, "subject_alt_name")
+		switch {
+		case !present:
+			add(Error, "SUBJECT-005", "subject is empty, so a subjectAltName extension is required")
+		case !critical:
+			add(Error, "SUBJECT-005", "subject is empty, so the subjectAltName extension must be critical")
+		default:
+			add(Info, "SUBJECT-005", "subject is empty and subjectAltName is critical OK")
+		}
 	}
-	if subject.Required && !subjectPresent && !subject.AllowEmpty {
-		add(Error, "SUBJECT-000", "subject distinguished name is required but is empty")
+
+	subjValues := SubjectValues(cert)
+	fieldNames := make([]string, 0, len(subject.Attributes))
+	for name := range subject.Attributes {
+		fieldNames = append(fieldNames, name)
 	}
+	SortAttributeKeys(fieldNames)
+	for _, fieldName := range fieldNames {
+		req := subject.Attributes[fieldName]
+		// Profile keys may be aliases or raw OIDs; resolve to the key that
+		// SubjectValues uses.
+		lookup, known := CanonicalSubjectAttribute(fieldName)
+		if !known {
+			lookup = fieldName
+		}
+		vals := subjValues[lookup]
+		present := len(vals) > 0 && vals[0] != ""
 
-	// A subject that is absent or empty is allowed to remain null when the
-	// profile marks it as required. In that case, there is nothing to validate
-	// against the individual attribute requirements.
-	if subjectPresent {
-		subjValues := SubjectValues(cert)
-		for fieldName, req := range subject.Attributes {
-			// Profile keys may be aliases or raw OIDs; resolve to the key that
-			// SubjectValues uses.
-			lookup, known := profile.CanonicalSubjectAttribute(fieldName)
-			if !known {
-				lookup = fieldName
-			}
-			vals := subjValues[lookup]
-			present := len(vals) > 0 && vals[0] != ""
+		// Findings name the attribute as it appears in RFC 5280.
+		label := SubjectAttributeLabel(fieldName)
 
-			// Findings name the attribute as it appears in RFC 5280.
-			label := profile.SubjectAttributeLabel(fieldName)
-
-			if req.Required && !present {
-				add(Error, "SUBJECT-001", fmt.Sprintf("required subject attribute '%s' is missing", label))
-				continue
-			}
-			if !present {
-				continue
-			}
-
-			// Length checks (apply to first / only value).
-			// Lengths are measured in characters, not bytes: RFC 5280 upper
-			// bounds are expressed as a number of characters, and a non-ASCII
-			// character such as U+2019 would otherwise count as 2-4.
-			val := vals[0]
-			valLen := utf8.RuneCountInString(val)
-			if req.Length.Min != nil && valLen < *req.Length.Min {
-				add(Error, "SUBJECT-002", fmt.Sprintf(
-					"subject attribute '%s' value %q is shorter than minimum length %d (actual: %d characters)",
-					label, val, *req.Length.Min, valLen))
-			}
-			if req.Length.Max != nil && valLen > *req.Length.Max {
-				add(Error, "SUBJECT-003", fmt.Sprintf(
-					"subject attribute '%s' value %q exceeds maximum length %d (actual: %d characters)",
-					label, val, *req.Length.Max, valLen))
-			}
-
-			if (req.Length.Min == nil || valLen >= *req.Length.Min) &&
-				(req.Length.Max == nil || valLen <= *req.Length.Max) {
-				add(Info, "SUBJECT-OK", fmt.Sprintf("subject attribute '%s' OK (%q)", label, val))
-			}
+		if req.Required && !present {
+			add(Error, "SUBJECT-001", fmt.Sprintf("required subject attribute '%s' is missing", label))
+			continue
+		}
+		if !present {
+			continue
 		}
 
-		// Any attribute present in the certificate but not listed in the
-		// profile is not permitted. The attribute list is exhaustive, and a
-		// profile that lists no attributes permits none: strictness is what a
-		// profile gets for saying nothing.
-		allowed := map[string]bool{}
-		for name := range subject.Attributes {
-			if oid, ok := profile.SubjectAttributeOID(name); ok {
-				allowed[oid] = true
-			}
+		// Length checks (apply to first / only value).
+		// Lengths are measured in characters, not bytes: RFC 5280 upper
+		// bounds are expressed as a number of characters, and a non-ASCII
+		// character such as U+2019 would otherwise count as 2-4.
+		val := vals[0]
+		valLen := utf8.RuneCountInString(val)
+		if req.Length.Min != nil && valLen < *req.Length.Min {
+			add(Error, "SUBJECT-002", fmt.Sprintf(
+				"subject attribute '%s' value %q is shorter than minimum length %d (actual: %d characters)",
+				label, val, *req.Length.Min, valLen))
 		}
-		for _, oid := range CertSubjectAttributeOIDs(cert) {
-			if !allowed[oid] {
-				add(Error, "SUBJECT-004", fmt.Sprintf(
-					"subject attribute %s is present but not listed in the profile",
-					subjectAttrDisplay(oid)))
-			}
+		if req.Length.Max != nil && valLen > *req.Length.Max {
+			add(Error, "SUBJECT-003", fmt.Sprintf(
+				"subject attribute '%s' value %q exceeds maximum length %d (actual: %d characters)",
+				label, val, *req.Length.Max, valLen))
+		}
+
+		if (req.Length.Min == nil || valLen >= *req.Length.Min) &&
+			(req.Length.Max == nil || valLen <= *req.Length.Max) {
+			add(Info, "SUBJECT-OK", fmt.Sprintf("subject attribute '%s' OK (%q)", label, val))
+		}
+	}
+
+	// Any attribute present in the certificate but not listed in the
+	// profile is not permitted. The attribute list is exhaustive, and a
+	// profile that lists no attributes permits none: strictness is what a
+	// profile gets for saying nothing.
+	allowedAttrs := map[string]bool{}
+	for name := range subject.Attributes {
+		if oid, ok := SubjectAttributeOID(name); ok {
+			allowedAttrs[oid] = true
+		}
+	}
+	for _, oid := range CertSubjectAttributeOIDs(cert) {
+		if !allowedAttrs[oid] {
+			add(Error, "SUBJECT-004", fmt.Sprintf(
+				"subject attribute %s is present but not listed in the profile",
+				subjectAttrDisplay(oid)))
 		}
 	}
 
 	// ---- Extensions ----
-	for extName, req := range p.Requirements.Extensions {
+	for _, extName := range ExtensionNames(p.Requirements.Extensions) {
+		req := p.Requirements.Extensions[extName]
 		// BasicConstraints — CA flag
 		if extName == "basic_constraints" && req.CA != nil {
 			if *req.CA != cert.IsCA {
@@ -693,7 +698,7 @@ func Lint(cert *x509.Certificate, p profile.Profile) []Finding {
 				add(Error, "EXT-002", fmt.Sprintf(
 					"extension '%s' critical=%v but profile requires critical=%s",
 					extName, critical, req.Critical.Spelling()))
-			case req.Critical == profile.CriticalityOptional:
+			case req.Critical == CriticalityOptional:
 				add(Info, "EXT-002", fmt.Sprintf(
 					"extension '%s' critical=%v OK (either is permitted)", extName, critical))
 			default:
@@ -724,7 +729,7 @@ func Lint(cert *x509.Certificate, p profile.Profile) []Finding {
 
 				allowed := map[string]bool{}
 				for _, ad := range req.AccessDescriptions {
-					oid, known := profile.AccessMethodOID(ad.AccessMethod)
+					oid, known := AccessMethodOID(ad.AccessMethod)
 					if !known {
 						add(Warning, "EXT-012", fmt.Sprintf(
 							"unknown access method '%s' in profile", ad.AccessMethod))
@@ -768,7 +773,7 @@ func Lint(cert *x509.Certificate, p profile.Profile) []Finding {
 				allowRelative, allowReasons, allowIssuer := false, false, false
 				for _, dp := range req.DistributionPoints {
 					for _, v := range dp.FullName {
-						if tag, known := profile.GeneralNameTag(v); known {
+						if tag, known := GeneralNameTag(v); known {
 							allowedTags[tag] = true
 						} else {
 							add(Warning, "EXT-020", fmt.Sprintf(
@@ -826,7 +831,7 @@ func Lint(cert *x509.Certificate, p profile.Profile) []Finding {
 		}
 
 		// Alternative names (Subject / Issuer Alternative Name)
-		if profile.SupportsGeneralNames(extName) && (len(req.RequiredValues) > 0 || len(req.OptionalValues) > 0) {
+		if SupportsGeneralNames(extName) && (len(req.RequiredValues) > 0 || len(req.OptionalValues) > 0) {
 			tags, extPresent := CertGeneralNameTags(cert, extName)
 			if extPresent {
 				present := map[int]bool{}
@@ -836,7 +841,7 @@ func Lint(cert *x509.Certificate, p profile.Profile) []Finding {
 
 				allowed := map[int]bool{}
 				for _, required := range req.RequiredValues {
-					tag, known := profile.GeneralNameTag(required)
+					tag, known := GeneralNameTag(required)
 					if !known {
 						add(Warning, "EXT-018", fmt.Sprintf(
 							"unknown general name type '%s' in profile", required))
@@ -853,7 +858,7 @@ func Lint(cert *x509.Certificate, p profile.Profile) []Finding {
 					}
 				}
 				for _, opt := range req.OptionalValues {
-					tag, known := profile.GeneralNameTag(opt)
+					tag, known := GeneralNameTag(opt)
 					if !known {
 						add(Warning, "EXT-018", fmt.Sprintf(
 							"unknown general name type '%s' in profile", opt))
@@ -887,7 +892,7 @@ func Lint(cert *x509.Certificate, p profile.Profile) []Finding {
 
 			allowed := map[string]bool{}
 			for _, required := range req.RequiredValues {
-				oid, known := profile.ExtKeyUsageOID(required)
+				oid, known := ExtKeyUsageOID(required)
 				if !known {
 					add(Warning, "EXT-003", fmt.Sprintf("unknown EKU value '%s' in profile", required))
 					continue
@@ -901,7 +906,7 @@ func Lint(cert *x509.Certificate, p profile.Profile) []Finding {
 				}
 			}
 			for _, opt := range req.OptionalValues {
-				oid, known := profile.ExtKeyUsageOID(opt)
+				oid, known := ExtKeyUsageOID(opt)
 				if !known {
 					add(Warning, "EXT-005", fmt.Sprintf("unknown EKU value '%s' in profile", opt))
 					continue
@@ -917,7 +922,7 @@ func Lint(cert *x509.Certificate, p profile.Profile) []Finding {
 				if allowed[oid] {
 					continue
 				}
-				if arc := profile.MatchingArc(oid, req.OptionalArcs); arc != "" {
+				if arc := MatchingArc(oid, req.OptionalArcs); arc != "" {
 					add(Info, "EXT-006", fmt.Sprintf(
 						"EKU '%s' is permitted by arc %s", EKUDisplay(oid), arc))
 					continue
@@ -937,7 +942,7 @@ func Lint(cert *x509.Certificate, p profile.Profile) []Finding {
 
 			allowed := map[string]bool{}
 			for _, required := range req.RequiredValues {
-				oid, known := profile.PolicyOID(required)
+				oid, known := PolicyOID(required)
 				if !known {
 					add(Warning, "EXT-014", fmt.Sprintf("unknown policy value '%s' in profile", required))
 					continue
@@ -951,7 +956,7 @@ func Lint(cert *x509.Certificate, p profile.Profile) []Finding {
 				}
 			}
 			for _, opt := range req.OptionalValues {
-				oid, known := profile.PolicyOID(opt)
+				oid, known := PolicyOID(opt)
 				if !known {
 					add(Warning, "EXT-015", fmt.Sprintf("unknown policy value '%s' in profile", opt))
 					continue
@@ -967,7 +972,7 @@ func Lint(cert *x509.Certificate, p profile.Profile) []Finding {
 				if allowed[oid] {
 					continue
 				}
-				if arc := profile.MatchingArc(oid, req.OptionalArcs); arc != "" {
+				if arc := MatchingArc(oid, req.OptionalArcs); arc != "" {
 					add(Info, "EXT-016", fmt.Sprintf(
 						"certificate policy %s is permitted by arc %s", policyDisplay(oid), arc))
 					continue
@@ -1023,7 +1028,7 @@ func Lint(cert *x509.Certificate, p profile.Profile) []Finding {
 	// A profile that lists no extensions permits none.
 	allowed := map[string]bool{}
 	for name := range p.Requirements.Extensions {
-		if oid, ok := profile.ExtensionOID(name); ok {
+		if oid, ok := ExtensionOID(name); ok {
 			allowed[oid] = true
 		}
 	}

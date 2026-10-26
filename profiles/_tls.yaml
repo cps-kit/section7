@@ -7,8 +7,6 @@ requirements:
     maximum_days: 200
 
   subject:
-    required: true
-    allow_empty: true
     attributes:
       common_name:
         required: false

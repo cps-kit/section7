@@ -31,13 +31,11 @@ Profiles are structured as a YAML document with a top-level `profile` block and 
 
 ### Subject DN requirements
 
-The `requirements.subject` block can describe the subject DN as a whole and the individual attributes that are permitted or required.
+The `requirements.subject` block lists the attributes permitted in the subject DN and which of them are required. The list is exhaustive. If no attribute is required, the subject may be an empty RDNSequence, in which case RFC 5280 requires a critical Subject Alternative Name extension.
 
 ```yaml
 requirements:
   subject:
-    required: true
-    allow_empty: true
     attributes:
       common_name:
         required: true

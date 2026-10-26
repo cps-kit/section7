@@ -14,7 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"section7/internal/profile"
+	"github.com/cps-kit/section7"
 )
 
 // Helper function to create a test certificate
@@ -119,7 +119,7 @@ func createCertWithAIA(t *testing.T, ocsp, caIssuers []string) *x509.Certificate
 
 // createEmptySubjectCert builds a certificate whose Subject DN is an empty
 // SEQUENCE, i.e. carries no attributes at all.
-func createEmptySubjectCert(t *testing.T) *x509.Certificate {
+func createEmptySubjectCert(t *testing.T, extra ...pkix.Extension) *x509.Certificate {
 	t.Helper()
 
 	privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
@@ -130,6 +130,7 @@ func createEmptySubjectCert(t *testing.T) *x509.Certificate {
 		NotAfter:              time.Now().Add(30 * 24 * time.Hour),
 		KeyUsage:              x509.KeyUsageDigitalSignature,
 		BasicConstraintsValid: true,
+		ExtraExtensions:       extra,
 	}
 
 	der, err := x509.CreateCertificate(rand.Reader, template, template, &privateKey.PublicKey, privateKey)
@@ -145,13 +146,12 @@ func createEmptySubjectCert(t *testing.T) *x509.Certificate {
 
 // TestLintValidCertificate tests linting a certificate that meets all requirements.
 func TestLintValidCertificate(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Validity: profile.Validity{MaximumDays: 365},
-			Subject: profile.Subject{
-				Required: true,
-				Attributes: map[string]profile.Field{
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Validity: section7.Validity{MaximumDays: 365},
+			Subject: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
 					"common_name":       {Required: true},
 					"organization_name": {Required: true},
 					"country":           {Required: true},
@@ -162,12 +162,12 @@ func TestLintValidCertificate(t *testing.T) {
 
 	cert, _ := createTestCert("example.com", "Test Org", "US", 30, false, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
 
-	findings := lint(cert, p)
+	findings := section7.Lint(cert, p)
 
 	// Should have some info findings
 	errors := 0
 	for _, f := range findings {
-		if f.Severity == Error {
+		if f.Severity == section7.Error {
 			errors++
 		}
 	}
@@ -175,8 +175,8 @@ func TestLintValidCertificate(t *testing.T) {
 	if errors > 0 {
 		t.Errorf("Valid certificate should not have errors, got %d", errors)
 		for _, f := range findings {
-			if f.Severity == Error {
-				t.Logf("  Error: %s", f)
+			if f.Severity == section7.Error {
+				t.Logf("  section7.Error: %s", f)
 			}
 		}
 	}
@@ -184,20 +184,20 @@ func TestLintValidCertificate(t *testing.T) {
 
 // TestLintValidityViolation tests detection of validity period violation.
 func TestLintValidityViolation(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Validity: profile.Validity{MaximumDays: 10}, // Very short
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Validity: section7.Validity{MaximumDays: 10}, // Very short
 		},
 	}
 
 	cert, _ := createTestCert("example.com", "Test Org", "US", 30, false, nil) // 30 day cert
 
-	findings := lint(cert, p)
+	findings := section7.Lint(cert, p)
 
 	found := false
 	for _, f := range findings {
-		if f.Severity == Error && strings.Contains(f.Message, "validity") {
+		if f.Severity == section7.Error && strings.Contains(f.Message, "validity") {
 			found = true
 			break
 		}
@@ -210,12 +210,11 @@ func TestLintValidityViolation(t *testing.T) {
 
 // TestLintMissingRequiredSubjectField tests detection of missing required subject field.
 func TestLintMissingRequiredSubjectField(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: profile.Subject{
-				Required: true,
-				Attributes: map[string]profile.Field{
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Subject: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
 					"locality": {Required: true}, // Not in our test cert
 				},
 			},
@@ -224,11 +223,11 @@ func TestLintMissingRequiredSubjectField(t *testing.T) {
 
 	cert, _ := createTestCert("example.com", "Test Org", "US", 30, false, nil)
 
-	findings := lint(cert, p)
+	findings := section7.Lint(cert, p)
 
 	found := false
 	for _, f := range findings {
-		if f.Severity == Error && strings.Contains(f.Message, "locality") {
+		if f.Severity == section7.Error && strings.Contains(f.Message, "locality") {
 			found = true
 			break
 		}
@@ -242,13 +241,12 @@ func TestLintMissingRequiredSubjectField(t *testing.T) {
 // TestLintSubjectFieldLength tests subject field length validation.
 func TestLintSubjectFieldLength(t *testing.T) {
 	maxLen := 5
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: profile.Subject{
-				Required: true,
-				Attributes: map[string]profile.Field{
-					"organization_name": {Required: true, Length: profile.FieldLength{Max: &maxLen}},
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Subject: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
+					"organization_name": {Required: true, Length: section7.FieldLength{Max: &maxLen}},
 				},
 			},
 		},
@@ -256,11 +254,11 @@ func TestLintSubjectFieldLength(t *testing.T) {
 
 	cert, _ := createTestCert("example.com", "This is a very long org name", "US", 30, false, nil)
 
-	findings := lint(cert, p)
+	findings := section7.Lint(cert, p)
 
 	found := false
 	for _, f := range findings {
-		if f.Severity == Error && strings.Contains(f.Message, "exceeds maximum length") {
+		if f.Severity == section7.Error && strings.Contains(f.Message, "exceeds maximum length") {
 			found = true
 			break
 		}
@@ -277,13 +275,12 @@ func TestLintSubjectFieldLength(t *testing.T) {
 // MARK, 3 bytes in UTF-8) must not be rejected for exceeding the limit.
 func TestLintSubjectLengthCountsCharactersNotBytes(t *testing.T) {
 	maxLen := 64
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: profile.Subject{
-				Required: true,
-				Attributes: map[string]profile.Field{
-					"organization_name": {Required: true, Length: profile.FieldLength{Max: &maxLen}},
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Subject: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
+					"organization_name": {Required: true, Length: section7.FieldLength{Max: &maxLen}},
 				},
 			},
 		},
@@ -300,8 +297,8 @@ func TestLintSubjectLengthCountsCharactersNotBytes(t *testing.T) {
 
 	cert, _ := createTestCert("example.com", org, "US", 30, false, nil)
 
-	for _, f := range lint(cert, p) {
-		if f.Severity == Error {
+	for _, f := range section7.Lint(cert, p) {
+		if f.Severity == section7.Error {
 			t.Errorf("a 64-character value must not violate a 64-character limit, got: %s", f)
 		}
 	}
@@ -311,13 +308,12 @@ func TestLintSubjectLengthCountsCharactersNotBytes(t *testing.T) {
 // when the value genuinely exceeds it in characters.
 func TestLintSubjectLengthTooLongInCharacters(t *testing.T) {
 	maxLen := 5
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: profile.Subject{
-				Required: true,
-				Attributes: map[string]profile.Field{
-					"organization_name": {Required: true, Length: profile.FieldLength{Max: &maxLen}},
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Subject: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
+					"organization_name": {Required: true, Length: section7.FieldLength{Max: &maxLen}},
 				},
 			},
 		},
@@ -327,8 +323,8 @@ func TestLintSubjectLengthTooLongInCharacters(t *testing.T) {
 	cert, _ := createTestCert("example.com", "ééééék", "US", 30, false, nil)
 
 	found := false
-	for _, f := range lint(cert, p) {
-		if f.RuleID == "SUBJECT-003" && f.Severity == Error {
+	for _, f := range section7.Lint(cert, p) {
+		if f.RuleID == "SUBJECT-003" && f.Severity == section7.Error {
 			found = true
 			if !strings.Contains(f.Message, "actual: 6 characters") {
 				t.Errorf("the message should report the character count, got: %s", f)
@@ -344,13 +340,12 @@ func TestLintSubjectLengthTooLongInCharacters(t *testing.T) {
 // measured in characters.
 func TestLintSubjectMinLengthCountsCharacters(t *testing.T) {
 	minLen := 3
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: profile.Subject{
-				Required: true,
-				Attributes: map[string]profile.Field{
-					"organization_name": {Required: true, Length: profile.FieldLength{Min: &minLen}},
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Subject: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
+					"organization_name": {Required: true, Length: section7.FieldLength{Min: &minLen}},
 				},
 			},
 		},
@@ -360,8 +355,8 @@ func TestLintSubjectMinLengthCountsCharacters(t *testing.T) {
 	cert, _ := createTestCert("example.com", "éé", "US", 30, false, nil)
 
 	found := false
-	for _, f := range lint(cert, p) {
-		if f.RuleID == "SUBJECT-002" && f.Severity == Error {
+	for _, f := range section7.Lint(cert, p) {
+		if f.RuleID == "SUBJECT-002" && f.Severity == section7.Error {
 			found = true
 		}
 	}
@@ -371,7 +366,7 @@ func TestLintSubjectMinLengthCountsCharacters(t *testing.T) {
 }
 
 // hasFinding reports whether a finding with the given rule ID and severity exists.
-func hasFinding(findings []Finding, ruleID string, sev Severity) bool {
+func hasFinding(findings []section7.Finding, ruleID string, sev section7.Severity) bool {
 	for _, f := range findings {
 		if f.RuleID == ruleID && f.Severity == sev {
 			return true
@@ -380,165 +375,118 @@ func hasFinding(findings []Finding, ruleID string, sev Severity) bool {
 	return false
 }
 
-// TestLintRequiredSubjectPresent checks SUBJECT-000 passes for a populated DN.
-func TestLintRequiredSubjectPresent(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: profile.Subject{Required: true},
-		},
-	}
+// sanExtension builds a subjectAltName extension carrying one dNSName. Go
+// would otherwise always mark it critical for an empty subject.
+func sanExtension(t *testing.T, critical bool) pkix.Extension {
+	t.Helper()
 
-	cert, _ := createTestCert("example.com", "Test Org", "US", 30, false, nil)
-
-	findings := lint(cert, p)
-
-	if !hasFinding(findings, "SUBJECT-000", Info) {
-		t.Errorf("a populated subject should satisfy the subject requirement, got: %v", findings)
+	der, err := asn1.Marshal([]asn1.RawValue{
+		{Class: asn1.ClassContextSpecific, Tag: 2, Bytes: []byte("example.com")},
+	})
+	if err != nil {
+		t.Fatalf("encoding subjectAltName: %v", err)
 	}
-	if hasFinding(findings, "SUBJECT-000", Error) {
-		t.Error("a populated subject should not raise a subject error")
-	}
+	return pkix.Extension{Id: asn1.ObjectIdentifier{2, 5, 29, 17}, Critical: critical, Value: der}
 }
 
-// TestLintRequiredSubjectMissing checks SUBJECT-000 does not fail for an empty DN
-// when the profile marks the subject as required but allows it to be null.
-func TestLintRequiredSubjectMissing(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: profile.Subject{Required: true},
-		},
-	}
-
-	cert := createEmptySubjectCert(t)
-
-	findings := lint(cert, p)
-
-	if hasFinding(findings, "SUBJECT-000", Error) {
-		t.Errorf("an empty subject should be accepted when required is set, got: %v", findings)
-	}
-	if hasFinding(findings, "SUBJECT-001", Error) {
-		t.Errorf("subject attribute checks should be skipped for an empty subject, got: %v", findings)
-	}
-}
-
-// TestLintRequiredSubjectMissingRejectsEmptyDN checks the default behavior: a
-// required subject is still rejected when empty unless the profile explicitly
-// allows empty DNs.
-func TestLintRequiredSubjectMissingRejectsEmptyDN(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: profile.Subject{Required: true},
-		},
-	}
-
-	cert := createEmptySubjectCert(t)
-
-	findings := lint(cert, p)
-
-	if !hasFinding(findings, "SUBJECT-000", Error) {
-		t.Fatalf("an empty subject should fail unless allow_empty is set, got: %v", findings)
-	}
-}
-
-// TestLintRequiredSubjectMissingAllowed checks that an empty DN is accepted when
-// the profile explicitly allows it.
-func TestLintRequiredSubjectMissingAllowed(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: profile.Subject{Required: true, AllowEmpty: true},
-		},
-	}
-
-	cert := createEmptySubjectCert(t)
-
-	findings := lint(cert, p)
-
-	if hasFinding(findings, "SUBJECT-000", Error) {
-		t.Fatalf("an empty subject should be accepted when allow_empty is true, got: %v", findings)
-	}
-	if hasFinding(findings, "SUBJECT-001", Error) {
-		t.Fatalf("subject attribute checks should be skipped for an empty subject, got: %v", findings)
-	}
-}
-
-// TestLintOptionalSubjectMissing checks that an absent, optional subject is
-// accepted and that its attribute requirements are not applied.
-func TestLintOptionalSubjectMissing(t *testing.T) {
-	ca := false
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: profile.Subject{
-				Required: false,
-				Attributes: map[string]profile.Field{
+// TestLintEmptySubjectRejectedWhenAttributeRequired verifies a required
+// attribute makes an empty subject non-conforming.
+func TestLintEmptySubjectRejectedWhenAttributeRequired(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Subject: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
 					"organization_name": {Required: true},
 				},
 			},
-			Extensions: map[string]profile.Extension{
-				"basic_constraints": {Required: profile.PresenceRequired, Critical: profile.CriticalityRequired, CA: &ca},
-				"key_usage":         {Required: profile.PresenceRequired, Critical: profile.CriticalityRequired, RequiredValues: []string{"digitalSignature"}},
-			},
 		},
 	}
 
-	cert := createEmptySubjectCert(t)
+	cert := createEmptySubjectCert(t, sanExtension(t, true))
 
-	findings := lint(cert, p)
-
-	for _, f := range findings {
-		if f.Severity == Error {
-			t.Errorf("an optional, absent subject should not produce errors, got: %s", f)
+	found := false
+	for _, f := range section7.Lint(cert, p) {
+		if f.RuleID == "SUBJECT-001" && f.Severity == section7.Error &&
+			strings.Contains(f.Message, "'organizationName'") {
+			found = true
 		}
+	}
+	if !found {
+		t.Error("an empty subject must be reported as missing its required attributes")
 	}
 }
 
-// TestLintSubjectAttributesStillCheckedWhenPresent verifies attribute rules
-// apply when an optional subject is in fact present.
-func TestLintSubjectAttributesStillCheckedWhenPresent(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: profile.Subject{
-				Required: false,
-				Attributes: map[string]profile.Field{
-					"locality": {Required: true}, // not present in the test cert
+// TestLintEmptySubjectRequiresCriticalSAN verifies the RFC 5280 rule that an
+// empty subject must be accompanied by a critical subjectAltName, and that it
+// then conforms when no attribute is required.
+func TestLintEmptySubjectRequiresCriticalSAN(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Subject: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
+					"common_name": {Required: false},
 				},
 			},
 		},
 	}
 
+	tests := []struct {
+		name     string
+		cert     *x509.Certificate
+		want     section7.Severity
+		inMsg    string
+		conforms bool
+	}{
+		{"no SAN", createEmptySubjectCert(t), section7.Error, "is required", false},
+		{"non-critical SAN", createEmptySubjectCert(t, sanExtension(t, false)), section7.Error, "must be critical", false},
+		{"critical SAN", createEmptySubjectCert(t, sanExtension(t, true)), section7.Info, "OK", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			found := false
+			for _, f := range section7.Lint(tt.cert, p) {
+				if f.RuleID == "SUBJECT-005" && f.Severity == tt.want && strings.Contains(f.Message, tt.inMsg) {
+					found = true
+				}
+				if tt.conforms && strings.HasPrefix(f.RuleID, "SUBJECT-") && f.Severity == section7.Error {
+					t.Errorf("an empty subject with no required attributes should conform, got: %s", f)
+				}
+			}
+			if !found {
+				t.Errorf("expected SUBJECT-005 %v containing %q", tt.want, tt.inMsg)
+			}
+		})
+	}
+
 	cert, _ := createTestCert("example.com", "Test Org", "US", 30, false, nil)
-
-	findings := lint(cert, p)
-
-	if !hasFinding(findings, "SUBJECT-001", Error) {
-		t.Errorf("attribute requirements should still apply to a present subject, got: %v", findings)
+	for _, f := range section7.Lint(cert, p) {
+		if f.RuleID == "SUBJECT-005" {
+			t.Errorf("the empty-subject SAN rule must not apply to a populated subject, got: %s", f)
+		}
 	}
 }
 
 // TestLintCAViolation tests detection of CA constraint violation.
 func TestLintCAViolation(t *testing.T) {
 	ca := false
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Extensions: map[string]profile.Extension{
-				"basic_constraints": {Critical: profile.CriticalityRequired, CA: &ca},
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Extensions: map[string]section7.Extension{
+				"basic_constraints": {Critical: section7.CriticalityRequired, CA: &ca},
 			},
 		},
 	}
 
 	cert, _ := createTestCert("example.com", "Test Org", "US", 30, true, nil) // isCA=true
 
-	findings := lint(cert, p)
+	findings := section7.Lint(cert, p)
 
 	found := false
 	for _, f := range findings {
-		if f.Severity == Error && strings.Contains(f.Message, "CA=") {
+		if f.Severity == section7.Error && strings.Contains(f.Message, "CA=") {
 			found = true
 			break
 		}
@@ -551,12 +499,12 @@ func TestLintCAViolation(t *testing.T) {
 
 // TestLintExtendedKeyUsageViolation tests detection of missing extended key usage.
 func TestLintExtendedKeyUsageViolation(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Extensions: map[string]profile.Extension{
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Extensions: map[string]section7.Extension{
 				"extended_key_usage": {
-					Critical:       profile.CriticalityForbidden,
+					Critical:       section7.CriticalityForbidden,
 					RequiredValues: []string{"clientAuth"},
 				},
 			},
@@ -566,11 +514,11 @@ func TestLintExtendedKeyUsageViolation(t *testing.T) {
 	// Create cert without clientAuth
 	cert, _ := createTestCert("example.com", "Test Org", "US", 30, false, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
 
-	findings := lint(cert, p)
+	findings := section7.Lint(cert, p)
 
 	found := false
 	for _, f := range findings {
-		if f.Severity == Error && strings.Contains(f.Message, "clientAuth") {
+		if f.Severity == section7.Error && strings.Contains(f.Message, "clientAuth") {
 			found = true
 			break
 		}
@@ -583,12 +531,12 @@ func TestLintExtendedKeyUsageViolation(t *testing.T) {
 
 // TestLintKeyUsageViolation tests detection of missing key usage.
 func TestLintKeyUsageViolation(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Extensions: map[string]profile.Extension{
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Extensions: map[string]section7.Extension{
 				"key_usage": {
-					Critical:       profile.CriticalityRequired,
+					Critical:       section7.CriticalityRequired,
 					RequiredValues: []string{"keyCertSign"},
 				},
 			},
@@ -598,11 +546,11 @@ func TestLintKeyUsageViolation(t *testing.T) {
 	// Create cert with default key usage (no keyCertSign)
 	cert, _ := createTestCert("example.com", "Test Org", "US", 30, false, nil)
 
-	findings := lint(cert, p)
+	findings := section7.Lint(cert, p)
 
 	found := false
 	for _, f := range findings {
-		if f.Severity == Error && strings.Contains(f.Message, "keyCertSign") {
+		if f.Severity == section7.Error && strings.Contains(f.Message, "keyCertSign") {
 			found = true
 			break
 		}
@@ -618,12 +566,11 @@ func TestLintKeyUsageViolation(t *testing.T) {
 // TestLintRejectsUnlistedSubjectAttribute verifies that an attribute present in
 // the certificate but absent from the profile is reported.
 func TestLintRejectsUnlistedSubjectAttribute(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: profile.Subject{
-				Required: true,
-				Attributes: map[string]profile.Field{
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Subject: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
 					"common_name": {Required: true},
 					// organization_name and country are deliberately omitted.
 				},
@@ -633,11 +580,11 @@ func TestLintRejectsUnlistedSubjectAttribute(t *testing.T) {
 
 	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
 
-	findings := lint(cert, p)
+	findings := section7.Lint(cert, p)
 
 	var unlisted []string
 	for _, f := range findings {
-		if f.RuleID == "SUBJECT-004" && f.Severity == Error {
+		if f.RuleID == "SUBJECT-004" && f.Severity == section7.Error {
 			unlisted = append(unlisted, f.Message)
 		}
 	}
@@ -655,12 +602,11 @@ func TestLintRejectsUnlistedSubjectAttribute(t *testing.T) {
 // TestLintAllowsListedSubjectAttributes verifies no false positives when every
 // present attribute is listed.
 func TestLintAllowsListedSubjectAttributes(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: profile.Subject{
-				Required: true,
-				Attributes: map[string]profile.Field{
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Subject: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
 					"common_name":       {Required: true},
 					"organization_name": {Required: true},
 					"country":           {Required: true},
@@ -671,7 +617,7 @@ func TestLintAllowsListedSubjectAttributes(t *testing.T) {
 
 	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
 
-	for _, f := range lint(cert, p) {
+	for _, f := range section7.Lint(cert, p) {
 		if f.RuleID == "SUBJECT-004" {
 			t.Errorf("listed attributes must not be reported, got: %s", f)
 		}
@@ -682,16 +628,16 @@ func TestLintAllowsListedSubjectAttributes(t *testing.T) {
 // about the subject is the strict answer, not the permissive one: a profile
 // with no subject block permits no subject attributes.
 func TestLintProfileWithoutSubjectPermitsNoAttributes(t *testing.T) {
-	p := profile.Profile{
-		Profile:      profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{},
+	p := section7.Profile{
+		Profile:      section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{},
 	}
 
 	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
 
 	var unlisted []string
-	for _, f := range lint(cert, p) {
-		if f.RuleID == "SUBJECT-004" && f.Severity == Error {
+	for _, f := range section7.Lint(cert, p) {
+		if f.RuleID == "SUBJECT-004" && f.Severity == section7.Error {
 			unlisted = append(unlisted, f.Message)
 		}
 	}
@@ -704,11 +650,11 @@ func TestLintProfileWithoutSubjectPermitsNoAttributes(t *testing.T) {
 // certificate but absent from the profile is reported.
 func TestLintRejectsUnlistedExtension(t *testing.T) {
 	ca := false
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Extensions: map[string]profile.Extension{
-				"basic_constraints": {Critical: profile.CriticalityRequired, CA: &ca},
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Extensions: map[string]section7.Extension{
+				"basic_constraints": {Critical: section7.CriticalityRequired, CA: &ca},
 				// key_usage and extended_key_usage deliberately omitted.
 			},
 		},
@@ -718,8 +664,8 @@ func TestLintRejectsUnlistedExtension(t *testing.T) {
 		[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
 
 	var unlisted []string
-	for _, f := range lint(cert, p) {
-		if f.RuleID == "EXT-009" && f.Severity == Error {
+	for _, f := range section7.Lint(cert, p) {
+		if f.RuleID == "EXT-009" && f.Severity == section7.Error {
 			unlisted = append(unlisted, f.Message)
 		}
 	}
@@ -736,11 +682,11 @@ func TestLintRejectsUnlistedExtension(t *testing.T) {
 // extension is listed.
 func TestLintAllowsListedExtensions(t *testing.T) {
 	ca := false
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Extensions: map[string]profile.Extension{
-				"basic_constraints":  {Critical: profile.CriticalityRequired, CA: &ca},
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Extensions: map[string]section7.Extension{
+				"basic_constraints":  {Critical: section7.CriticalityRequired, CA: &ca},
 				"key_usage":          {RequiredValues: []string{"digitalSignature"}},
 				"extended_key_usage": {RequiredValues: []string{"serverAuth"}},
 			},
@@ -750,7 +696,7 @@ func TestLintAllowsListedExtensions(t *testing.T) {
 	cert := createParsedTestCert(t, "example.com", "Test Org", "US",
 		[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
 
-	for _, f := range lint(cert, p) {
+	for _, f := range section7.Lint(cert, p) {
 		if f.RuleID == "EXT-009" {
 			t.Errorf("listed extensions must not be reported, got: %s", f)
 		}
@@ -760,17 +706,17 @@ func TestLintAllowsListedExtensions(t *testing.T) {
 // TestLintProfileWithoutExtensionsPermitsNone verifies that a profile with no
 // extensions block permits no extensions, rather than permitting every one.
 func TestLintProfileWithoutExtensionsPermitsNone(t *testing.T) {
-	p := profile.Profile{
-		Profile:      profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{},
+	p := section7.Profile{
+		Profile:      section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{},
 	}
 
 	cert := createParsedTestCert(t, "example.com", "Test Org", "US",
 		[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
 
 	var unlisted []string
-	for _, f := range lint(cert, p) {
-		if f.RuleID == "EXT-009" && f.Severity == Error {
+	for _, f := range section7.Lint(cert, p) {
+		if f.RuleID == "EXT-009" && f.Severity == section7.Error {
 			unlisted = append(unlisted, f.Message)
 		}
 	}
@@ -781,19 +727,19 @@ func TestLintProfileWithoutExtensionsPermitsNone(t *testing.T) {
 
 // TestLintExtensionAcceptedByOID verifies an extension may be listed by raw OID.
 func TestLintExtensionAcceptedByOID(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Extensions: map[string]profile.Extension{
-				"2.5.29.19": {Critical: profile.CriticalityRequired}, // basic constraints, by OID
-				"2.5.29.15": {},                                      // key usage, by OID
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Extensions: map[string]section7.Extension{
+				"2.5.29.19": {Critical: section7.CriticalityRequired}, // basic constraints, by OID
+				"2.5.29.15": {},                                       // key usage, by OID
 			},
 		},
 	}
 
 	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
 
-	for _, f := range lint(cert, p) {
+	for _, f := range section7.Lint(cert, p) {
 		if f.RuleID == "EXT-009" {
 			t.Errorf("extensions listed by OID must be accepted, got: %s", f)
 		}
@@ -803,32 +749,32 @@ func TestLintExtensionAcceptedByOID(t *testing.T) {
 // ---------- Serial number ----------
 
 func TestLintSerialNumberRequiredOK(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			SerialNumber: profile.SerialNumber{Required: true, Declared: true},
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			SerialNumber: section7.SerialNumber{Required: true, Declared: true},
 		},
 	}
 
 	cert, _ := createTestCert("example.com", "Test Org", "US", 30, false, nil)
 
-	if !hasFinding(lint(cert, p), "SERIAL-001", Info) {
+	if !hasFinding(section7.Lint(cert, p), "SERIAL-001", section7.Info) {
 		t.Error("a positive serial number should satisfy the requirement")
 	}
 }
 
 func TestLintSerialNumberZeroRejected(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			SerialNumber: profile.SerialNumber{Required: true, Declared: true},
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			SerialNumber: section7.SerialNumber{Required: true, Declared: true},
 		},
 	}
 
 	cert, _ := createTestCert("example.com", "Test Org", "US", 30, false, nil)
 	cert.SerialNumber = big.NewInt(0)
 
-	if !hasFinding(lint(cert, p), "SERIAL-001", Error) {
+	if !hasFinding(section7.Lint(cert, p), "SERIAL-001", section7.Error) {
 		t.Error("a zero serial number should be rejected")
 	}
 }
@@ -839,11 +785,11 @@ func TestLintSerialNumberZeroRejected(t *testing.T) {
 // check only covering a hard-coded set of extensions. Go emits Subject Key
 // Identifier as non-critical, so a profile demanding critical=true must fail.
 func TestLintCriticalityCheckedForAllExtensions(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Extensions: map[string]profile.Extension{
-				"subject_key_identifier": {Critical: profile.CriticalityRequired},
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Extensions: map[string]section7.Extension{
+				"subject_key_identifier": {Critical: section7.CriticalityRequired},
 			},
 		},
 	}
@@ -851,8 +797,8 @@ func TestLintCriticalityCheckedForAllExtensions(t *testing.T) {
 	cert := createCertWithSKI(t)
 
 	found := false
-	for _, f := range lint(cert, p) {
-		if f.RuleID == "EXT-002" && f.Severity == Error &&
+	for _, f := range section7.Lint(cert, p) {
+		if f.RuleID == "EXT-002" && f.Severity == section7.Error &&
 			strings.Contains(f.Message, "subject_key_identifier") {
 			found = true
 		}
@@ -864,19 +810,19 @@ func TestLintCriticalityCheckedForAllExtensions(t *testing.T) {
 
 // TestLintCriticalityAcceptedForAllExtensions is the matching positive case.
 func TestLintCriticalityAcceptedForAllExtensions(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Extensions: map[string]profile.Extension{
-				"subject_key_identifier": {Critical: profile.CriticalityForbidden},
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Extensions: map[string]section7.Extension{
+				"subject_key_identifier": {Critical: section7.CriticalityForbidden},
 			},
 		},
 	}
 
 	cert := createCertWithSKI(t)
 
-	for _, f := range lint(cert, p) {
-		if f.RuleID == "EXT-002" && f.Severity == Error {
+	for _, f := range section7.Lint(cert, p) {
+		if f.RuleID == "EXT-002" && f.Severity == section7.Error {
 			t.Errorf("a matching criticality must not be reported, got: %s", f)
 		}
 	}
@@ -885,11 +831,11 @@ func TestLintCriticalityAcceptedForAllExtensions(t *testing.T) {
 // TestLintCriticalityCheckedForOIDKeyedExtension verifies the check also works
 // when the extension is listed by raw OID.
 func TestLintCriticalityCheckedForOIDKeyedExtension(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Extensions: map[string]profile.Extension{
-				"2.5.29.14": {Critical: profile.CriticalityRequired}, // subject key identifier, by OID
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Extensions: map[string]section7.Extension{
+				"2.5.29.14": {Critical: section7.CriticalityRequired}, // subject key identifier, by OID
 			},
 		},
 	}
@@ -897,8 +843,8 @@ func TestLintCriticalityCheckedForOIDKeyedExtension(t *testing.T) {
 	cert := createCertWithSKI(t)
 
 	found := false
-	for _, f := range lint(cert, p) {
-		if f.RuleID == "EXT-002" && f.Severity == Error {
+	for _, f := range section7.Lint(cert, p) {
+		if f.RuleID == "EXT-002" && f.Severity == section7.Error {
 			found = true
 		}
 	}
@@ -910,11 +856,11 @@ func TestLintCriticalityCheckedForOIDKeyedExtension(t *testing.T) {
 // TestLintAbsentListedExtensionReported verifies that a listed but absent
 // extension is reported rather than silently skipped.
 func TestLintAbsentListedExtensionReported(t *testing.T) {
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Extensions: map[string]profile.Extension{
-				"name_constraints": {Critical: profile.CriticalityRequired}, // not present in the test cert
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Extensions: map[string]section7.Extension{
+				"name_constraints": {Critical: section7.CriticalityRequired}, // not present in the test cert
 			},
 		},
 	}
@@ -922,7 +868,7 @@ func TestLintAbsentListedExtensionReported(t *testing.T) {
 	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
 
 	found := false
-	for _, f := range lint(cert, p) {
+	for _, f := range section7.Lint(cert, p) {
 		if f.RuleID == "EXT-010" && strings.Contains(f.Message, "name_constraints") {
 			found = true
 		}
@@ -935,20 +881,398 @@ func TestLintAbsentListedExtensionReported(t *testing.T) {
 	}
 }
 
+// ---------- Extension presence (required: true/false) ----------
+
+// TestLintRequiredExtensionMissing verifies required: true is enforced.
+func TestLintRequiredExtensionMissing(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Extensions: map[string]section7.Extension{
+				// Absent from the test certificate.
+				"subject_key_identifier": {Required: section7.PresenceRequired},
+			},
+		},
+	}
+
+	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
+
+	found := false
+	for _, f := range lint(cert, p) {
+		if f.RuleID == "EXT-011" && f.Severity == Error &&
+			strings.Contains(f.Message, "subject_key_identifier") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("a missing extension marked required: true must be reported as an error")
+	}
+}
+
+// TestLintOptionalExtensionMissing verifies required: false is not an error.
+func TestLintOptionalExtensionMissing(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Extensions: map[string]section7.Extension{
+				"subject_key_identifier": {Required: section7.PresenceOptional},
+			},
+		},
+	}
+
+	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
+
+	for _, f := range lint(cert, p) {
+		if f.RuleID == "EXT-011" {
+			t.Errorf("an absent extension marked required: false must not error, got: %s", f)
+		}
+	}
+	if !hasFinding(lint(cert, p), "EXT-010", Info) {
+		t.Error("an absent optional extension should still be reported as permitted-but-absent")
+	}
+}
+
+// TestLintRequiredExtensionPresent verifies no error when a required extension
+// is in fact present.
+func TestLintRequiredExtensionPresent(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Extensions: map[string]section7.Extension{
+				"subject_key_identifier": {Required: section7.PresenceRequired, Critical: section7.CriticalityForbidden},
+			},
+		},
+	}
+
+	cert := createCertWithSKI(t)
+
+	for _, f := range lint(cert, p) {
+		if f.RuleID == "EXT-011" {
+			t.Errorf("a present required extension must not be reported, got: %s", f)
+		}
+	}
+}
+
+// ---------- Access descriptions (AIA) ----------
+
+// aiaProfile builds a profile requiring the given access methods. It also
+// lists the other extensions the fixture certificate carries, so that
+// assertions can look at all errors rather than only AIA rules.
+func aiaProfile(descriptions ...section7.AccessDescription) section7.Profile {
+	ca := false
+	return section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Subject: fixtureDN(),
+			Extensions: map[string]section7.Extension{
+				"authority_information_access": {
+					Required:           section7.PresenceRequired,
+					Critical:           section7.CriticalityForbidden,
+					AccessDescriptions: descriptions,
+				},
+				"basic_constraints": {Required: section7.PresenceRequired, Critical: section7.CriticalityRequired, CA: &ca},
+				"key_usage":         {Required: section7.PresenceRequired, Critical: section7.CriticalityRequired, RequiredValues: []string{"digitalSignature"}},
+			},
+		},
+	}
+}
+
+// TestLintAccessDescriptionsPresent verifies both listed methods are accepted.
+func TestLintAccessDescriptionsPresent(t *testing.T) {
+	p := aiaProfile(
+		section7.AccessDescription{AccessMethod: "id-ad-caIssuers", Required: true},
+		section7.AccessDescription{AccessMethod: "id-ad-ocsp", Required: true},
+	)
+
+	cert := createCertWithAIA(t,
+		[]string{"http://ocsp.example.com"},
+		[]string{"http://crt.example.com/ca.crt"})
+
+	for _, f := range lint(cert, p) {
+		if f.Severity == Error {
+			t.Errorf("a certificate with both access methods must not error, got: %s", f)
+		}
+	}
+}
+
+// TestLintAccessDescriptionMissingRequired verifies a required access method
+// that is absent is reported.
+func TestLintAccessDescriptionMissingRequired(t *testing.T) {
+	p := aiaProfile(
+		section7.AccessDescription{AccessMethod: "id-ad-caIssuers", Required: true},
+		section7.AccessDescription{AccessMethod: "id-ad-ocsp", Required: true},
+	)
+
+	// Only caIssuers present.
+	cert := createCertWithAIA(t, nil, []string{"http://crt.example.com/ca.crt"})
+
+	found := false
+	for _, f := range lint(cert, p) {
+		if f.RuleID == "EXT-012" && f.Severity == Error && strings.Contains(f.Message, "id-ad-ocsp") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("a missing required access method should be reported")
+	}
+}
+
+// TestLintAccessDescriptionNotListed verifies an access method present in the
+// certificate but absent from the profile is reported.
+func TestLintAccessDescriptionNotListed(t *testing.T) {
+	// Profile permits only caIssuers.
+	p := aiaProfile(section7.AccessDescription{AccessMethod: "id-ad-caIssuers", Required: true})
+
+	cert := createCertWithAIA(t,
+		[]string{"http://ocsp.example.com"},
+		[]string{"http://crt.example.com/ca.crt"})
+
+	found := false
+	for _, f := range lint(cert, p) {
+		if f.RuleID == "EXT-013" && f.Severity == Error && strings.Contains(f.Message, "id-ad-ocsp") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("an access method not listed in the profile should be reported")
+	}
+}
+
+// TestLintAccessDescriptionOptionalAbsent verifies an optional access method
+// that is absent is not an error.
+func TestLintAccessDescriptionOptionalAbsent(t *testing.T) {
+	p := aiaProfile(
+		section7.AccessDescription{AccessMethod: "id-ad-caIssuers", Required: true},
+		section7.AccessDescription{AccessMethod: "id-ad-ocsp", Required: false},
+	)
+
+	cert := createCertWithAIA(t, nil, []string{"http://crt.example.com/ca.crt"})
+
+	for _, f := range lint(cert, p) {
+		if f.Severity == Error {
+			t.Errorf("an absent optional access method must not error, got: %s", f)
+		}
+	}
+}
+
+// TestLintAccessDescriptionsByOID verifies access methods may be listed by OID.
+func TestLintAccessDescriptionsByOID(t *testing.T) {
+	p := aiaProfile(
+		section7.AccessDescription{AccessMethod: "1.3.6.1.5.5.7.48.2", Required: true},
+		section7.AccessDescription{AccessMethod: "1.3.6.1.5.5.7.48.1", Required: true},
+	)
+
+	cert := createCertWithAIA(t,
+		[]string{"http://ocsp.example.com"},
+		[]string{"http://crt.example.com/ca.crt"})
+
+	for _, f := range lint(cert, p) {
+		if f.Severity == Error {
+			t.Errorf("access methods listed by OID must be accepted, got: %s", f)
+		}
+	}
+}
+
+// TestLintFindingOrderIsStable guards against iterating the profile's maps
+// directly. Go randomizes map iteration, so doing that made the findings for
+// one certificate come out in a different order on every run.
+func TestLintFindingOrderIsStable(t *testing.T) {
+	p := aiaProfile(
+		section7.AccessDescription{AccessMethod: "id-ad-caIssuers", Required: true},
+		section7.AccessDescription{AccessMethod: "id-ad-ocsp", Required: true},
+	)
+	p.Requirements.Subject = section7.DistinguishedName{
+		Attributes: map[string]section7.Field{
+			"common_name":            {},
+			"country_name":           {},
+			"organization_name":      {},
+			"state_or_province_name": {},
+			"locality_name":          {},
+		},
+	}
+
+	cert := createCertWithAIA(t,
+		[]string{"http://ocsp.example.com"},
+		[]string{"http://crt.example.com/ca.crt"})
+
+	first := lint(cert, p)
+	for i := 0; i < 20; i++ {
+		next := lint(cert, p)
+		if len(next) != len(first) {
+			t.Fatalf("finding count changed between runs: %d then %d", len(first), len(next))
+		}
+		for j := range first {
+			if next[j].RuleID != first[j].RuleID || next[j].Message != first[j].Message {
+				t.Fatalf("finding %d differs between runs:\n  %s\n  %s", j, first[j], next[j])
+			}
+		}
+	}
+}
+
+// TestSubjectAttributesFollowEncodingOrder verifies the attribute findings are
+// reported in the order a conforming certificate encodes them, as required by
+// Section 7.1.4.2 of the Baseline Requirements.
+func TestSubjectAttributesFollowEncodingOrder(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Subject: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
+					"common_name":       {Required: true},
+					"country_name":      {Required: true},
+					"organization_name": {Required: true},
+				},
+			},
+		},
+	}
+
+	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
+
+	var order []string
+	for _, f := range lint(cert, p) {
+		if !strings.HasPrefix(f.RuleID, "SUBJECT-") {
+			continue
+		}
+		switch {
+		case strings.Contains(f.Message, "'countryName'"):
+			order = append(order, "countryName")
+		case strings.Contains(f.Message, "'organizationName'"):
+			order = append(order, "organizationName")
+		case strings.Contains(f.Message, "'commonName'"):
+			order = append(order, "commonName")
+		}
+	}
+
+	want := []string{"countryName", "organizationName", "commonName"}
+	if len(order) != len(want) {
+		t.Fatalf("expected one finding per attribute, got %v", order)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Fatalf("attributes reported as %v, want %v", order, want)
+		}
+	}
+}
+
+// TestLintCriticalityOptionalAcceptsNonCritical verifies `critical: optional`
+// accepts a non-critical extension.
+func TestLintCriticalityOptionalAcceptsNonCritical(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Extensions: map[string]section7.Extension{
+				"subject_key_identifier": {Critical: section7.CriticalityOptional},
+			},
+		},
+	}
+
+	// Go emits Subject Key Identifier as non-critical.
+	cert := createCertWithSKI(t)
+
+	for _, f := range lint(cert, p) {
+		if f.RuleID == "EXT-002" && f.Severity == Error {
+			t.Errorf("critical: optional must accept a non-critical extension, got: %s", f)
+		}
+	}
+	if !hasFinding(lint(cert, p), "EXT-002", Info) {
+		t.Error("critical: optional should still report the observed criticality")
+	}
+}
+
+// TestLintCriticalityOptionalAcceptsCritical verifies `critical: optional`
+// accepts a critical extension too.
+func TestLintCriticalityOptionalAcceptsCritical(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Extensions: map[string]section7.Extension{
+				// Go emits Basic Constraints as critical.
+				"basic_constraints": {Critical: section7.CriticalityOptional},
+			},
+		},
+	}
+
+	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
+
+	for _, f := range lint(cert, p) {
+		if f.RuleID == "EXT-002" && f.Severity == Error {
+			t.Errorf("critical: optional must accept a critical extension, got: %s", f)
+		}
+	}
+}
+
+// ---------- Optional arcs ----------
+
+// createCertWithPolicies builds a parsed certificate carrying the given
+// certificate policy OIDs.
+func createCertWithPolicies(t *testing.T, oids ...string) *x509.Certificate {
+	t.Helper()
+
+	// The modern Policies field is used rather than the deprecated
+	// PolicyIdentifiers, which current Go releases no longer marshal.
+	var policies []x509.OID
+	for _, s := range oids {
+		oid, err := x509.ParseOID(s)
+		if err != nil {
+			t.Fatalf("bad OID %q: %v", s, err)
+		}
+		policies = append(policies, oid)
+	}
+
+	privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "example.com"},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(30 * 24 * time.Hour),
+		BasicConstraintsValid: true,
+		Policies:              policies,
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		t.Fatalf("creating certificate: %v", err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parsing certificate: %v", err)
+	}
+	return cert
+}
+
+// policyArcProfile permits one required policy plus the Sectigo arc.
+func policyArcProfile() section7.Profile {
+	ca := false
+	return section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile"},
+		Requirements: section7.Requirements{
+			Subject: fixtureDN(),
+			Extensions: map[string]section7.Extension{
+				"certificate_policies": {
+					Required:       section7.PresenceRequired,
+					RequiredValues: []string{"2.23.140.1.2.1"},
+					OptionalArcs:   []string{"1.3.6.1.4.1.6449.*"},
+				},
+				"basic_constraints": {Required: section7.PresenceRequired, Critical: section7.CriticalityRequired, CA: &ca},
+			},
+		},
+	}
+}
+
 // TestLintPolicyUnderArcAccepted verifies a policy beneath a permitted arc is
 // accepted rather than reported as unlisted.
 func TestLintPolicyUnderArcAccepted(t *testing.T) {
 	p := policyArcProfile()
 	cert := createCertWithPolicies(t, "2.23.140.1.2.1", "1.3.6.1.4.1.6449.1.2.2.7")
 
-	for _, f := range lint(cert, p) {
-		if f.Severity == Error {
+	for _, f := range section7.Lint(cert, p) {
+		if f.Severity == section7.Error {
 			t.Errorf("a policy under a permitted arc must not error, got: %s", f)
 		}
 	}
 
 	found := false
-	for _, f := range lint(cert, p) {
+	for _, f := range section7.Lint(cert, p) {
 		if f.RuleID == "EXT-016" && strings.Contains(f.Message, "permitted by arc") {
 			found = true
 		}
@@ -964,8 +1288,8 @@ func TestLintPolicyOutsideArcRejected(t *testing.T) {
 	cert := createCertWithPolicies(t, "2.23.140.1.2.1", "1.2.3.4.5")
 
 	found := false
-	for _, f := range lint(cert, p) {
-		if f.RuleID == "EXT-016" && f.Severity == Error && strings.Contains(f.Message, "1.2.3.4.5") {
+	for _, f := range section7.Lint(cert, p) {
+		if f.RuleID == "EXT-016" && f.Severity == section7.Error && strings.Contains(f.Message, "1.2.3.4.5") {
 			found = true
 		}
 	}
@@ -981,8 +1305,8 @@ func TestLintPolicyArcRespectsComponentBoundary(t *testing.T) {
 	cert := createCertWithPolicies(t, "2.23.140.1.2.1", "1.3.6.1.4.1.64499.1")
 
 	found := false
-	for _, f := range lint(cert, p) {
-		if f.RuleID == "EXT-016" && f.Severity == Error && strings.Contains(f.Message, "64499") {
+	for _, f := range section7.Lint(cert, p) {
+		if f.RuleID == "EXT-016" && f.Severity == section7.Error && strings.Contains(f.Message, "64499") {
 			found = true
 		}
 	}
@@ -994,19 +1318,19 @@ func TestLintPolicyArcRespectsComponentBoundary(t *testing.T) {
 // ---------- Precertificates vs final certificates ----------
 
 // ctProfile describes both kinds of certificate, as a CT-logging profile must.
-func ctProfile() profile.Profile {
+func ctProfile() section7.Profile {
 	ca := false
-	return profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: fixtureSubject(),
-			Extensions: map[string]profile.Extension{
-				"signed_certificate_timestamps": {Required: profile.PresenceFinalOnly},
+	return section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Subject: fixtureDN(),
+			Extensions: map[string]section7.Extension{
+				"signed_certificate_timestamps": {Required: section7.PresenceFinalOnly},
 				"precertificate_poison": {
-					Required: profile.PresencePrecertificateOnly,
-					Critical: profile.CriticalityRequired,
+					Required: section7.PresencePrecertificateOnly,
+					Critical: section7.CriticalityRequired,
 				},
-				"basic_constraints": {Required: profile.PresenceRequired, Critical: profile.CriticalityRequired, CA: &ca},
+				"basic_constraints": {Required: section7.PresenceRequired, Critical: section7.CriticalityRequired, CA: &ca},
 			},
 		},
 	}
@@ -1064,13 +1388,56 @@ func TestIsPrecertificateDetection(t *testing.T) {
 	}
 }
 
+// TestCertEKUOIDs verifies recognized and unrecognized EKUs are both returned
+// as dotted OIDs, in certificate order.
+func TestCertEKUOIDs(t *testing.T) {
+	privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "example.com"},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(30 * 24 * time.Hour),
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+		UnknownExtKeyUsage:    []asn1.ObjectIdentifier{{1, 2, 3, 4}},
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		t.Fatalf("creating certificate: %v", err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parsing certificate: %v", err)
+	}
+
+	got := certEKUOIDs(cert)
+	want := []string{"1.3.6.1.5.5.7.3.1", "1.3.6.1.5.5.7.3.2", "1.2.3.4"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("certEKUOIDs = %v, want %v", got, want)
+	}
+
+	if got := certEKUOIDs(createParsedTestCert(t, "example.com", "Test Org", "US", nil)); len(got) != 0 {
+		t.Errorf("a certificate without EKUs should yield none, got %v", got)
+	}
+}
+
+// TestEKUDisplay verifies known EKUs are named and unknown ones left bare.
+func TestEKUDisplay(t *testing.T) {
+	if got, want := ekuDisplay("1.3.6.1.5.5.7.3.1"), "serverAuth (1.3.6.1.5.5.7.3.1)"; got != want {
+		t.Errorf("ekuDisplay(serverAuth) = %q, want %q", got, want)
+	}
+	if got, want := ekuDisplay("1.2.3.4"), "1.2.3.4"; got != want {
+		t.Errorf("ekuDisplay(unknown) = %q, want %q", got, want)
+	}
+}
+
 // TestLintPrecertificateAccepted verifies a well-formed Precertificate passes:
 // poison present, no SCTs.
 func TestLintPrecertificateAccepted(t *testing.T) {
 	cert := certWithCTExtensions(t, true, false)
 
-	for _, f := range lint(cert, ctProfile()) {
-		if f.Severity == Error {
+	for _, f := range section7.Lint(cert, ctProfile()) {
+		if f.Severity == section7.Error {
 			t.Errorf("a well-formed Precertificate must not error, got: %s", f)
 		}
 	}
@@ -1081,8 +1448,8 @@ func TestLintPrecertificateAccepted(t *testing.T) {
 func TestLintFinalCertificateAccepted(t *testing.T) {
 	cert := certWithCTExtensions(t, false, true)
 
-	for _, f := range lint(cert, ctProfile()) {
-		if f.Severity == Error {
+	for _, f := range section7.Lint(cert, ctProfile()) {
+		if f.Severity == section7.Error {
 			t.Errorf("a well-formed final certificate must not error, got: %s", f)
 		}
 	}
@@ -1094,8 +1461,8 @@ func TestLintPrecertificateWithSCTsRejected(t *testing.T) {
 	cert := certWithCTExtensions(t, true, true)
 
 	found := false
-	for _, f := range lint(cert, ctProfile()) {
-		if f.RuleID == "EXT-017" && f.Severity == Error &&
+	for _, f := range section7.Lint(cert, ctProfile()) {
+		if f.RuleID == "EXT-017" && f.Severity == section7.Error &&
 			strings.Contains(f.Message, "signed_certificate_timestamps") {
 			found = true
 		}
@@ -1111,8 +1478,8 @@ func TestLintFinalCertificateMissingSCTsRejected(t *testing.T) {
 	cert := certWithCTExtensions(t, false, false)
 
 	found := false
-	for _, f := range lint(cert, ctProfile()) {
-		if f.RuleID == "EXT-011" && f.Severity == Error &&
+	for _, f := range section7.Lint(cert, ctProfile()) {
+		if f.RuleID == "EXT-011" && f.Severity == section7.Error &&
 			strings.Contains(f.Message, "signed_certificate_timestamps") {
 			found = true
 		}
@@ -1128,7 +1495,7 @@ func TestLintFinalCertificateMissingSCTsRejected(t *testing.T) {
 func TestLintPoisonMakesItAPrecertificate(t *testing.T) {
 	cert := certWithCTExtensions(t, true, false)
 
-	for _, f := range lint(cert, ctProfile()) {
+	for _, f := range section7.Lint(cert, ctProfile()) {
 		if f.RuleID == "EXT-011" && strings.Contains(f.Message, "signed_certificate_timestamps") {
 			t.Errorf("a Precertificate must not be required to carry SCTs, got: %s", f)
 		}
@@ -1139,11 +1506,11 @@ func TestLintPoisonMakesItAPrecertificate(t *testing.T) {
 // describe Precertificates says so rather than silently mis-linting.
 func TestLintPrecertificateWarnsWhenProfileSilent(t *testing.T) {
 	ca := false
-	p := profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Extensions: map[string]profile.Extension{
-				"basic_constraints": {Required: profile.PresenceRequired, Critical: profile.CriticalityRequired, CA: &ca},
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Extensions: map[string]section7.Extension{
+				"basic_constraints": {Required: section7.PresenceRequired, Critical: section7.CriticalityRequired, CA: &ca},
 			},
 		},
 	}
@@ -1151,8 +1518,8 @@ func TestLintPrecertificateWarnsWhenProfileSilent(t *testing.T) {
 	cert := certWithCTExtensions(t, true, false)
 
 	found := false
-	for _, f := range lint(cert, p) {
-		if f.RuleID == "CT-001" && f.Severity == Warning {
+	for _, f := range section7.Lint(cert, p) {
+		if f.RuleID == "CT-001" && f.Severity == section7.Warning {
 			found = true
 		}
 	}
@@ -1164,20 +1531,20 @@ func TestLintPrecertificateWarnsWhenProfileSilent(t *testing.T) {
 // ---------- Alternative name types ----------
 
 // sanProfile permits only the given general name types.
-func sanProfile(required, optional []string) profile.Profile {
+func sanProfile(required, optional []string) section7.Profile {
 	ca := false
-	return profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: fixtureSubject(),
-			Extensions: map[string]profile.Extension{
+	return section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Subject: fixtureDN(),
+			Extensions: map[string]section7.Extension{
 				"subject_alt_name": {
-					Required:       profile.PresenceRequired,
-					Critical:       profile.CriticalityOptional,
+					Required:       section7.PresenceRequired,
+					Critical:       section7.CriticalityOptional,
 					RequiredValues: required,
 					OptionalValues: optional,
 				},
-				"basic_constraints": {Required: profile.PresenceRequired, Critical: profile.CriticalityRequired, CA: &ca},
+				"basic_constraints": {Required: section7.PresenceRequired, Critical: section7.CriticalityRequired, CA: &ca},
 			},
 		},
 	}
@@ -1215,8 +1582,8 @@ func TestLintGeneralNameTypesAccepted(t *testing.T) {
 	p := sanProfile(nil, []string{"dns_name", "ip_address"})
 	cert := certWithSANs(t, []string{"example.com"}, nil, []net.IP{net.ParseIP("192.0.2.1")})
 
-	for _, f := range lint(cert, p) {
-		if f.Severity == Error {
+	for _, f := range section7.Lint(cert, p) {
+		if f.Severity == section7.Error {
 			t.Errorf("listed name types must not error, got: %s", f)
 		}
 	}
@@ -1228,8 +1595,8 @@ func TestLintGeneralNameTypeNotListed(t *testing.T) {
 	cert := certWithSANs(t, []string{"example.com"}, []string{"admin@example.com"}, nil)
 
 	found := false
-	for _, f := range lint(cert, p) {
-		if f.RuleID == "EXT-019" && f.Severity == Error && strings.Contains(f.Message, "rfc822Name") {
+	for _, f := range section7.Lint(cert, p) {
+		if f.RuleID == "EXT-019" && f.Severity == section7.Error && strings.Contains(f.Message, "rfc822Name") {
 			found = true
 		}
 	}
@@ -1245,8 +1612,8 @@ func TestLintGeneralNameTypeRequiredMissing(t *testing.T) {
 	cert := certWithSANs(t, nil, nil, []net.IP{net.ParseIP("192.0.2.1")})
 
 	found := false
-	for _, f := range lint(cert, p) {
-		if f.RuleID == "EXT-018" && f.Severity == Error && strings.Contains(f.Message, "dNSName") {
+	for _, f := range section7.Lint(cert, p) {
+		if f.RuleID == "EXT-018" && f.Severity == section7.Error && strings.Contains(f.Message, "dNSName") {
 			found = true
 		}
 	}
@@ -1260,8 +1627,8 @@ func TestLintGeneralNameAliasesResolve(t *testing.T) {
 	p := sanProfile(nil, []string{"dns", "ip"})
 	cert := certWithSANs(t, []string{"example.com"}, nil, []net.IP{net.ParseIP("192.0.2.1")})
 
-	for _, f := range lint(cert, p) {
-		if f.Severity == Error {
+	for _, f := range section7.Lint(cert, p) {
+		if f.Severity == section7.Error {
 			t.Errorf("alias name types must be accepted, got: %s", f)
 		}
 	}
@@ -1270,18 +1637,18 @@ func TestLintGeneralNameAliasesResolve(t *testing.T) {
 // ---------- CRL distribution points ----------
 
 // crldpProfile permits distribution points of the given shape.
-func crldpProfile(dps ...profile.DistributionPoint) profile.Profile {
+func crldpProfile(dps ...section7.DistributionPoint) section7.Profile {
 	ca := false
-	return profile.Profile{
-		Profile: profile.Meta{Name: "Test Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Subject: fixtureSubject(),
-			Extensions: map[string]profile.Extension{
+	return section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Subject: fixtureDN(),
+			Extensions: map[string]section7.Extension{
 				"crl_distribution_points": {
-					Required:           profile.PresenceRequired,
+					Required:           section7.PresenceRequired,
 					DistributionPoints: dps,
 				},
-				"basic_constraints": {Required: profile.PresenceRequired, Critical: profile.CriticalityRequired, CA: &ca},
+				"basic_constraints": {Required: section7.PresenceRequired, Critical: section7.CriticalityRequired, CA: &ca},
 			},
 		},
 	}
@@ -1367,14 +1734,14 @@ func fullNameDP(t *testing.T, tags ...int) []byte {
 
 // TestLintCRLDistributionPointAccepted verifies a URI distribution point passes.
 func TestLintCRLDistributionPointAccepted(t *testing.T) {
-	p := crldpProfile(profile.DistributionPoint{
+	p := crldpProfile(section7.DistributionPoint{
 		FullName: []string{"uniform_resource_identifier"},
 		Required: true,
 	})
 	cert := certWithCRLDP(t, fullNameDP(t, 6))
 
-	for _, f := range lint(cert, p) {
-		if f.Severity == Error {
+	for _, f := range section7.Lint(cert, p) {
+		if f.Severity == section7.Error {
 			t.Errorf("a URI distribution point must not error, got: %s", f)
 		}
 	}
@@ -1383,15 +1750,15 @@ func TestLintCRLDistributionPointAccepted(t *testing.T) {
 // TestLintCRLDistributionPointUnlistedNameType verifies a name type outside the
 // profile is reported.
 func TestLintCRLDistributionPointUnlistedNameType(t *testing.T) {
-	p := crldpProfile(profile.DistributionPoint{
+	p := crldpProfile(section7.DistributionPoint{
 		FullName: []string{"uniform_resource_identifier"},
 	})
 	// Tag 4 is directoryName, which the profile does not permit.
 	cert := certWithCRLDP(t, fullNameDP(t, 6, 4))
 
 	found := false
-	for _, f := range lint(cert, p) {
-		if f.RuleID == "EXT-021" && f.Severity == Error && strings.Contains(f.Message, "directoryName") {
+	for _, f := range section7.Lint(cert, p) {
+		if f.RuleID == "EXT-021" && f.Severity == section7.Error && strings.Contains(f.Message, "directoryName") {
 			found = true
 		}
 	}
@@ -1403,7 +1770,7 @@ func TestLintCRLDistributionPointUnlistedNameType(t *testing.T) {
 // TestLintCRLDistributionPointUndeclaredReasons verifies the optional reasons
 // field is reported when the profile does not describe it.
 func TestLintCRLDistributionPointUndeclaredReasons(t *testing.T) {
-	p := crldpProfile(profile.DistributionPoint{
+	p := crldpProfile(section7.DistributionPoint{
 		FullName: []string{"uniform_resource_identifier"},
 	})
 
@@ -1411,8 +1778,8 @@ func TestLintCRLDistributionPointUndeclaredReasons(t *testing.T) {
 	cert := certWithCRLDP(t, body)
 
 	found := false
-	for _, f := range lint(cert, p) {
-		if f.RuleID == "EXT-021" && f.Severity == Error && strings.Contains(f.Message, "reasons") {
+	for _, f := range section7.Lint(cert, p) {
+		if f.RuleID == "EXT-021" && f.Severity == section7.Error && strings.Contains(f.Message, "reasons") {
 			found = true
 		}
 	}
@@ -1423,7 +1790,7 @@ func TestLintCRLDistributionPointUndeclaredReasons(t *testing.T) {
 
 // TestLintCRLDistributionPointDeclaredReasons verifies it passes once declared.
 func TestLintCRLDistributionPointDeclaredReasons(t *testing.T) {
-	p := crldpProfile(profile.DistributionPoint{
+	p := crldpProfile(section7.DistributionPoint{
 		FullName: []string{"uniform_resource_identifier"},
 		Reasons:  true,
 	})
@@ -1431,7 +1798,7 @@ func TestLintCRLDistributionPointDeclaredReasons(t *testing.T) {
 	body := append(fullNameDP(t, 6), ctx(t, 1, false, []byte{0x01, 0x02})...)
 	cert := certWithCRLDP(t, body)
 
-	for _, f := range lint(cert, p) {
+	for _, f := range section7.Lint(cert, p) {
 		if f.RuleID == "EXT-021" {
 			t.Errorf("a declared reasons field must not be reported, got: %s", f)
 		}
@@ -1441,16 +1808,16 @@ func TestLintCRLDistributionPointDeclaredReasons(t *testing.T) {
 // TestProfileValidationError tests that ValidateProfile rejects invalid profiles.
 // This is tested by calling ValidateProfile directly, not by running main.
 func TestProfileValidationError(t *testing.T) {
-	invalidProfile := &profile.Profile{
-		Profile: profile.Meta{Name: "Invalid Profile", Version: 3},
-		Requirements: profile.Requirements{
-			Extensions: map[string]profile.Extension{
-				"made_up_extension": {Critical: profile.CriticalityForbidden},
+	invalidProfile := &section7.Profile{
+		Profile: section7.Meta{Name: "Invalid Profile", Version: 3},
+		Requirements: section7.Requirements{
+			Extensions: map[string]section7.Extension{
+				"made_up_extension": {Critical: section7.CriticalityForbidden},
 			},
 		},
 	}
 
-	errs := profile.ValidateProfile(invalidProfile)
+	errs := section7.ValidateProfile(invalidProfile)
 	if len(errs) == 0 {
 		t.Fatal("ValidateProfile should detect unknown extension")
 	}
@@ -1474,7 +1841,7 @@ func TestFinding(t *testing.T) {
 		want    string
 	}{
 		{
-			Finding{RuleID: "TEST-001", Severity: Error, Message: "Test error"},
+			Finding{RuleID: "TEST-001", Severity: section7.Error, Message: "Test error"},
 			"[ERROR] TEST-001: Test error",
 		},
 		{
@@ -1554,5 +1921,15 @@ func TestSubjectValuesCoversUnstructuredAttributes(t *testing.T) {
 	got := values["business_category"]
 	if len(got) == 0 || got[0] != "Private Organization" {
 		t.Errorf("business_category should be resolved from the DN, got %v", got)
+	}
+}
+
+// fixtureDN lists the one attribute the fixture certificates carry in their
+// subject and, being self-signed, in their issuer too. The attribute list is
+// exhaustive, so a profile used with those certificates must describe it even
+// when the test is about extensions.
+func fixtureDN() section7.DistinguishedName {
+	return section7.DistinguishedName{
+		Attributes: map[string]section7.Field{"common_name": {}},
 	}
 }

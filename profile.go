@@ -1,6 +1,7 @@
-package profile
+package section7
 
 import (
+	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+//go:embed profiles/*
+var profiles embed.FS
 
 // ---------- YAML model ----------
 
@@ -33,7 +37,7 @@ type RecognizedBy struct {
 type Requirements struct {
 	Validity     Validity             `yaml:"validity"`
 	SerialNumber SerialNumber         `yaml:"serial_number"`
-	Subject      Subject              `yaml:"subject"`
+	Subject      DistinguishedName    `yaml:"subject"`
 	Extensions   map[string]Extension `yaml:"extensions"`
 }
 
@@ -72,20 +76,14 @@ func (s *SerialNumber) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-// Subject describes the requirements for the certificate's Subject
-// Distinguished Name as a whole, plus the individual attributes within it.
-type Subject struct {
-	// Required indicates whether the Subject DN must be present (non-empty).
-	Required bool `yaml:"required"`
-	// AllowEmpty indicates the Subject DN may be absent or empty even when the
-	// profile marks it as required. This is useful for profiles where a null DN
-	// is technically permitted but all subject attribute checks still apply when
-	// the DN is present.
-	AllowEmpty bool `yaml:"allow_empty"`
+// DistinguishedName describes the requirements for one of the certificate's
+// distinguished names, the subject or the issuer, as a whole, plus the
+// individual attributes within it.
+type DistinguishedName struct {
 	// Attributes holds the per-attribute requirements, keyed by attribute name.
 	// The list is exhaustive: an attribute that does not appear here is not
-	// permitted in the certificate. A profile that omits the subject block
-	// therefore permits no subject attributes at all.
+	// permitted in the certificate. A profile that omits the block therefore
+	// permits no attributes in that name at all.
 	Attributes map[string]Field `yaml:"attributes"`
 }
 
@@ -1676,6 +1674,67 @@ var KnownKeyUsages = map[string]bool{
 	"decipherOnly":      true,
 }
 
+// AttributeEncodingOrder lists the subject attributes whose relative order
+// within the RDNSequence is fixed by Section 7.1.4.2 of the Baseline
+// Requirements. Attributes outside this list have no mandated position.
+var AttributeEncodingOrder = []string{
+	"domain_component",
+	"country_name",
+	"state_or_province_name",
+	"locality_name",
+	"postal_code",
+	"street_address",
+	"organization_name",
+	"surname",
+	"given_name",
+	"organizational_unit_name",
+	"common_name",
+}
+
+var attributeEncodingRank = func() map[string]int {
+	rank := make(map[string]int, len(AttributeEncodingOrder))
+	for i, name := range AttributeEncodingOrder {
+		rank[name] = i
+	}
+	return rank
+}()
+
+// SortAttributeKeys orders attribute keys as a conforming certificate encodes
+// them, with the attributes the Requirements do not place in that sequence
+// following afterwards, by name.
+func SortAttributeKeys(keys []string) {
+	rankOf := func(key string) (int, bool) {
+		canonical, _ := CanonicalSubjectAttribute(key)
+		r, ok := attributeEncodingRank[canonical]
+		return r, ok
+	}
+
+	sort.Slice(keys, func(i, j int) bool {
+		ri, iRanked := rankOf(keys[i])
+		rj, jRanked := rankOf(keys[j])
+		switch {
+		case iRanked && jRanked:
+			return ri < rj
+		case iRanked != jRanked:
+			return iRanked
+		default:
+			return SubjectAttributeLabel(keys[i]) < SubjectAttributeLabel(keys[j])
+		}
+	})
+}
+
+// ExtensionNames returns the names of the extensions a profile describes, in a
+// stable order. RFC 5280 fixes no order for the extensions themselves, so they
+// are named alphabetically.
+func ExtensionNames(extensions map[string]Extension) []string {
+	names := make([]string, 0, len(extensions))
+	for name := range extensions {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // ---------- Strict schema validation (raw YAML keys) ----------
 
 // keys builds a set from the given names.
@@ -1694,7 +1753,7 @@ var (
 	requirementKeys       = keys("validity", "serial_number", "subject", "extensions")
 	validityKeys          = keys("maximum_days")
 	serialNumberKeys      = keys("required", "maximum_bit_length", "minimum_octets", "textual_requirement")
-	subjectKeys           = keys("required", "allow_empty", "attributes")
+	subjectKeys           = keys("attributes")
 	subjectFieldKeys      = keys("required", "length")
 	lengthKeys            = keys("min", "max")
 	ruleKeys              = keys("id", "text")

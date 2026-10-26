@@ -10,9 +10,9 @@ import (
 	"sort"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	"github.com/cps-kit/section7"
 
-	"section7/internal/profile"
+	"gopkg.in/yaml.v3"
 )
 
 func boolStr(b bool) string {
@@ -38,32 +38,32 @@ func humanize(s string) string {
 // extLabel returns the documented display name of an extension, falling back
 // to a humanized version of the profile key.
 func extLabel(name string) string {
-	if meta, ok := profile.ExtensionInfo[name]; ok && meta.DisplayName != "" {
+	if meta, ok := section7.ExtensionInfo[name]; ok && meta.DisplayName != "" {
 		return meta.DisplayName
 	}
 	return humanize(name)
 }
 
 // criticalSentence describes the presence and criticality requirements in prose.
-func criticalSentence(label string, required profile.Presence, critical profile.Criticality) string {
+func criticalSentence(label string, required section7.Presence, critical section7.Criticality) string {
 	var criticality string
 	switch critical {
-	case profile.CriticalityRequired:
+	case section7.CriticalityRequired:
 		criticality = "MUST be marked critical"
-	case profile.CriticalityOptional:
+	case section7.CriticalityOptional:
 		criticality = "MAY be marked critical"
 	default:
 		criticality = "MUST NOT be marked critical"
 	}
 
 	switch required {
-	case profile.PresenceRequired:
+	case section7.PresenceRequired:
 		return fmt.Sprintf("The %s extension MUST be present and %s.\n\n", label, criticality)
-	case profile.PresenceFinalOnly:
+	case section7.PresenceFinalOnly:
 		return fmt.Sprintf(
 			"The %s extension MUST be present in final certificates and %s. "+
 				"It MUST NOT be present in Precertificates.\n\n", label, criticality)
-	case profile.PresencePrecertificateOnly:
+	case section7.PresencePrecertificateOnly:
 		return fmt.Sprintf(
 			"The %s extension MUST be present in Precertificates and %s. "+
 				"It MUST NOT be present in final certificates.\n\n", label, criticality)
@@ -73,16 +73,17 @@ func criticalSentence(label string, required profile.Presence, critical profile.
 }
 
 // renderExtension renders a single extension as its own detailed subsection.
-func renderExtension(extName string, ext profile.Extension) string {
+func renderExtension(extName string, ext section7.Extension) string {
 	var sb strings.Builder
 
-	meta := profile.ExtensionMetaFor(extName)
+	meta := section7.ExtensionMetaFor(extName)
 	label := extLabel(extName)
 
 	sb.WriteString(fmt.Sprintf("#### %s\n\n", label))
 
 	if meta.Description != "" {
-		sb.WriteString(meta.Description + "\n\n")
+		sb.WriteString(meta.Description)
+		sb.WriteString("\n\n")
 	}
 
 	sb.WriteString("| Property | Value |\n")
@@ -112,7 +113,7 @@ func renderExtension(extName string, ext profile.Extension) string {
 		sb.WriteString("| Access Method | OID | Presence | Description |\n")
 		sb.WriteString("| ------------- | --- | -------- | ----------- |\n")
 		for _, ad := range ext.AccessDescriptions {
-			meta := profile.AccessMethodInfo[ad.AccessMethod]
+			meta := section7.AccessMethodInfo[ad.AccessMethod]
 			oid := meta.OID
 			if oid == "" {
 				oid = ad.AccessMethod
@@ -198,7 +199,7 @@ func renderExtension(extName string, ext profile.Extension) string {
 		// Values of the alternative name extensions are alternatives of the
 		// GeneralName CHOICE, identified by a context-specific tag rather than
 		// by an OID.
-		if profile.SupportsGeneralNames(extName) {
+		if section7.SupportsGeneralNames(extName) {
 			sb.WriteString(fmt.Sprintf("| %s | Tag | Presence | Description |\n", valueLabel))
 			sb.WriteString("| --- | --- | -------- | ----------- |\n")
 			for _, v := range ext.RequiredValues {
@@ -273,7 +274,7 @@ func renderExtension(extName string, ext profile.Extension) string {
 
 // generalNameRow renders one GeneralName alternative row.
 func generalNameRow(value, presence string) string {
-	meta, ok := profile.GeneralNameMetaFor(value)
+	meta, ok := section7.GeneralNameMetaFor(value)
 	if !ok {
 		return fmt.Sprintf("| `%s` | - | %s | - |\n", value, presence)
 	}
@@ -285,14 +286,14 @@ func generalNameRow(value, presence string) string {
 func generalNameLabels(values []string) []string {
 	labels := make([]string, 0, len(values))
 	for _, v := range values {
-		labels = append(labels, "`"+profile.GeneralNameLabel(v)+"`")
+		labels = append(labels, "`"+section7.GeneralNameLabel(v)+"`")
 	}
 	return labels
 }
 
 // arcRow renders one permitted-arc row for an extension value table.
 func arcRow(arc string, withOID bool) string {
-	prefix, ok := profile.ArcPrefix(arc)
+	prefix, ok := section7.ArcPrefix(arc)
 	if !ok {
 		prefix = arc
 	}
@@ -310,7 +311,7 @@ func arcParagraph(arcs []string) string {
 
 	prefixes := make([]string, 0, len(arcs))
 	for _, arc := range arcs {
-		prefix, ok := profile.ArcPrefix(arc)
+		prefix, ok := section7.ArcPrefix(arc)
 		if !ok {
 			prefix = arc
 		}
@@ -347,34 +348,34 @@ func valueRow(extName, value, presence string, withOID bool) string {
 	oid, desc := "-", "-"
 	switch extName {
 	case "certificate_policies":
-		if info, ok := profile.PolicyInfo[value]; ok {
+		if info, ok := section7.PolicyInfo[value]; ok {
 			// Well-known policy referenced by name.
 			oid, desc = info.OID, info.Description
-		} else if resolved, ok := profile.PolicyOID(value); ok {
+		} else if resolved, ok := section7.PolicyOID(value); ok {
 			// Referenced directly by OID.
 			oid = resolved
-			if name := profile.PolicyName(resolved); name != "" {
-				desc = profile.PolicyInfo[name].Description
+			if name := section7.PolicyName(resolved); name != "" {
+				desc = section7.PolicyInfo[name].Description
 			} else {
 				desc = "Certificate policy identified by OID " + resolved
 			}
 		}
 	case "extended_key_usage":
-		if info, ok := profile.ExtKeyUsageInfo[value]; ok {
+		if info, ok := section7.ExtKeyUsageInfo[value]; ok {
 			// Well-known usage referenced by name.
 			oid, desc = info.OID, info.Description
-		} else if resolved, ok := profile.ExtKeyUsageOID(value); ok {
+		} else if resolved, ok := section7.ExtKeyUsageOID(value); ok {
 			// Referenced directly by OID. Use the well-known description when
 			// the OID happens to be one we know about.
 			oid = resolved
-			if name := profile.ExtKeyUsageName(resolved); name != "" {
-				desc = profile.ExtKeyUsageInfo[name].Description
+			if name := section7.ExtKeyUsageName(resolved); name != "" {
+				desc = section7.ExtKeyUsageInfo[name].Description
 			} else {
 				desc = "Application-specific key purpose identified by OID " + resolved
 			}
 		}
 	case "key_usage":
-		if d, ok := profile.KeyUsageInfo[value]; ok {
+		if d, ok := section7.KeyUsageInfo[value]; ok {
 			desc = d
 		}
 	}
@@ -393,7 +394,7 @@ func backtickAll(values []string) []string {
 	return out
 }
 
-func renderProfile(p profile.Profile, raw map[string]interface{}) string {
+func renderProfile(p section7.Profile, raw map[string]interface{}) string {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("## Certificate Profile: %s (X.509v%d)\n\n", p.Profile.Name, p.Profile.Version))
@@ -421,34 +422,38 @@ func renderProfile(p profile.Profile, raw map[string]interface{}) string {
 		if sn.TextualRequirement != "" {
 			// Reproduced verbatim from the profile: these requirements cannot
 			// be verified by inspecting a certificate alone.
-			sb.WriteString("The serial number " + sn.TextualRequirement + "\n\n")
+			sb.WriteString("The serial number ")
+			sb.WriteString(sn.TextualRequirement)
+			sb.WriteString("\n\n")
 		}
 	}
 
 	// Subject
 	subject := p.Requirements.Subject
-	if subject.Required || len(subject.Attributes) > 0 {
-		sb.WriteString("### Subject DN Requirements\n\n")
-
-		switch {
-		case subject.Required && subject.AllowEmpty:
-			sb.WriteString("The subject field MAY be empty. If it is populated, it MUST contain a non-empty RDNSequence: " +
-				"at least one of the attributes listed below MUST be present, and every attribute " +
-				"present MUST conform to the requirements stated for it.\n\n")
-		case subject.Required:
-			sb.WriteString("The subject field MUST contain a non-empty RDNSequence: " +
-				"at least one of the attributes listed below MUST be present, and every attribute " +
-				"present MUST conform to the requirements stated for it.\n\n")
-		default:
-			empty := "The subject field MAY contain an empty RDNSequence, in which case the " +
-				"certificate asserts no identity through the Subject Distinguished Name"
-			if _, ok := p.Requirements.Extensions["subject_alt_name"]; ok {
-				empty += " and the subject is identified by the Subject Alternative Name extension instead"
-			}
-			sb.WriteString(empty + ". " +
-				"If the RDNSequence is not empty, every attribute it contains MUST be one of the " +
-				"attributes listed below and MUST conform to the requirements stated for it.\n\n")
+	anyRequired := false
+	for _, f := range subject.Attributes {
+		if f.Required {
+			anyRequired = true
+			break
 		}
+	}
+	sb.WriteString("### Subject DN Requirements\n\n")
+
+	switch {
+	case len(subject.Attributes) == 0:
+		sb.WriteString("The subject field MUST be an empty RDNSequence; no subject attributes are " +
+			"permitted. The certificate therefore asserts no identity through the Subject " +
+			"Distinguished Name and MUST include a Subject Alternative Name extension marked critical.\n\n")
+	case anyRequired:
+		sb.WriteString("The subject field MUST contain a non-empty RDNSequence. Every attribute it " +
+			"contains MUST be one of the attributes listed below and MUST conform to the " +
+			"requirements stated for it.\n\n")
+	default:
+		sb.WriteString("The subject field MAY contain an empty RDNSequence, in which case the " +
+			"certificate asserts no identity through the Subject Distinguished Name and MUST " +
+			"include a Subject Alternative Name extension marked critical. " +
+			"If the RDNSequence is not empty, every attribute it contains MUST be one of the " +
+			"attributes listed below and MUST conform to the requirements stated for it.\n\n")
 	}
 
 	if len(subject.Attributes) > 0 {
@@ -466,7 +471,7 @@ func renderProfile(p profile.Profile, raw map[string]interface{}) string {
 		}
 		// Sort by the rendered X.520 name so the table reads alphabetically.
 		sort.Slice(subjNames, func(i, j int) bool {
-			return profile.SubjectAttributeLabel(subjNames[i]) < profile.SubjectAttributeLabel(subjNames[j])
+			return section7.SubjectAttributeLabel(subjNames[i]) < section7.SubjectAttributeLabel(subjNames[j])
 		})
 
 		if hasLength {
@@ -474,7 +479,7 @@ func renderProfile(p profile.Profile, raw map[string]interface{}) string {
 			sb.WriteString("| --------- | ---------- | --- | -------- | ---------- | ---------- |\n")
 			for _, name := range subjNames {
 				f := subject.Attributes[name]
-				meta, _ := profile.SubjectAttributeMetaFor(name)
+				meta, _ := section7.SubjectAttributeMetaFor(name)
 				minLen := "-"
 				maxLen := "-"
 				if f.Length.Min != nil {
@@ -484,16 +489,16 @@ func renderProfile(p profile.Profile, raw map[string]interface{}) string {
 					maxLen = fmt.Sprintf("%d", *f.Length.Max)
 				}
 				sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s |\n",
-					profile.SubjectAttributeLabel(name), dash(meta.ShortName), dash(meta.OID),
+					section7.SubjectAttributeLabel(name), dash(meta.ShortName), dash(meta.OID),
 					boolStr(f.Required), minLen, maxLen))
 			}
 		} else {
 			sb.WriteString("| Attribute | Short Name | OID | Required |\n")
 			sb.WriteString("| --------- | ---------- | --- | -------- |\n")
 			for _, name := range subjNames {
-				meta, _ := profile.SubjectAttributeMetaFor(name)
+				meta, _ := section7.SubjectAttributeMetaFor(name)
 				sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n",
-					profile.SubjectAttributeLabel(name), dash(meta.ShortName), dash(meta.OID),
+					section7.SubjectAttributeLabel(name), dash(meta.ShortName), dash(meta.OID),
 					boolStr(subject.Attributes[name].Required)))
 			}
 		}
@@ -503,7 +508,7 @@ func renderProfile(p profile.Profile, raw map[string]interface{}) string {
 		var required []string
 		for _, name := range subjNames {
 			if subject.Attributes[name].Required {
-				required = append(required, "`"+profile.SubjectAttributeLabel(name)+"`")
+				required = append(required, "`"+section7.SubjectAttributeLabel(name)+"`")
 			}
 		}
 		if len(required) > 0 {
@@ -544,7 +549,7 @@ func renderProfile(p profile.Profile, raw map[string]interface{}) string {
 		sb.WriteString("| Extension | OID | Required | Critical |\n")
 		sb.WriteString("| --------- | --- | -------- | -------- |\n")
 		for _, name := range names {
-			meta := profile.ExtensionMetaFor(name)
+			meta := section7.ExtensionMetaFor(name)
 			ext := p.Requirements.Extensions[name]
 			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n",
 				extLabel(name), dash(meta.OID), ext.Required, ext.Critical))
@@ -560,7 +565,7 @@ func renderProfile(p profile.Profile, raw map[string]interface{}) string {
 	if len(p.Rules) > 0 {
 		sb.WriteString("### Rules\n\n")
 		for _, r := range p.Rules {
-			text := profile.InterpolateText(r.Text, raw)
+			text := section7.InterpolateText(r.Text, raw)
 			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", r.ID, text))
 		}
 		sb.WriteString("\n")
@@ -581,7 +586,7 @@ func usage() {
 // expandProfile writes the profile at path with its `extends` chain resolved,
 // which is the single document that the linter and the generator both see.
 func expandProfile(path string, w io.Writer) error {
-	loaded, err := profile.Load(path)
+	loaded, err := section7.Load(path)
 	if err != nil {
 		return err
 	}
@@ -645,7 +650,7 @@ func main() {
 		profileID := strings.ToLower(m[1])
 
 		yamlPath := filepath.Join(*profilesDir, profileID+".yaml")
-		loaded, err := profile.Load(yamlPath)
+		loaded, err := section7.Load(yamlPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not load profile for %s: %v\n", placeholder, err)
 			continue
