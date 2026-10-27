@@ -25,7 +25,46 @@ type Profile struct {
 type Meta struct {
 	Name         string       `yaml:"name"`
 	RecognizedBy RecognizedBy `yaml:"recognized_by"`
-	Version      int          `yaml:"version"`
+	// Version is the revision of the profile document itself, not the X.509
+	// version of the certificates it describes.
+	Version ProfileVersion `yaml:"version"`
+}
+
+// ProfileVersion is the revision number of a profile document. It is written
+// in YAML as a positive integer; zero means the profile does not state one.
+type ProfileVersion int
+
+// UnmarshalYAML accepts only a positive integer, so that a float or a quoted
+// number is reported rather than silently converted.
+func (v *ProfileVersion) UnmarshalYAML(node *yaml.Node) error {
+	var n int
+	if node.Kind != yaml.ScalarNode || node.ShortTag() != "!!int" || node.Decode(&n) != nil || n <= 0 {
+		return fmt.Errorf("profile 'version' must be a positive integer (got %q)", node.Value)
+	}
+	*v = ProfileVersion(n)
+	return nil
+}
+
+// CertificateVersion is the X.509 version a profile describes. It is written in
+// YAML as `v1`, `v2` or `v3`, and holds the number that crypto/x509 reports.
+type CertificateVersion int
+
+// UnmarshalYAML accepts only `v1`, `v2` or `v3`.
+func (v *CertificateVersion) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode && node.ShortTag() == "!!str" {
+		switch node.Value {
+		case "v1":
+			*v = 1
+			return nil
+		case "v2":
+			*v = 2
+			return nil
+		case "v3":
+			*v = 3
+			return nil
+		}
+	}
+	return fmt.Errorf("requirements 'version' must be v1, v2 or v3 (got %q)", node.Value)
 }
 
 // RecognizedBy describes how certificates issued under this profile can be
@@ -34,11 +73,43 @@ type RecognizedBy struct {
 	PolicyOID string `yaml:"policy_oid"`
 }
 
+// Requirements describes the certificate a profile permits. The fields are
+// ordered as they appear in the TBSCertificate of RFC 5280.
 type Requirements struct {
-	Validity     Validity             `yaml:"validity"`
-	SerialNumber SerialNumber         `yaml:"serial_number"`
-	Subject      DistinguishedName    `yaml:"subject"`
-	Extensions   map[string]Extension `yaml:"extensions"`
+	Version            CertificateVersion   `yaml:"version"`
+	SerialNumber       SerialNumber         `yaml:"serial_number"`
+	SignatureAlgorithm SignatureAlgorithm   `yaml:"signature_algorithm"`
+	Issuer             DistinguishedName    `yaml:"issuer"`
+	Validity           Validity             `yaml:"validity"`
+	Subject            DistinguishedName    `yaml:"subject"`
+	PublicKey          PublicKey            `yaml:"public_key"`
+	Extensions         map[string]Extension `yaml:"extensions"`
+}
+
+// SignatureAlgorithm lists the algorithms a certificate under the profile may
+// be signed with. The list is exhaustive: an algorithm that does not appear
+// here is not permitted.
+type SignatureAlgorithm struct {
+	Allowed []string `yaml:"allowed"`
+}
+
+// PublicKey lists the subject public key algorithms a profile permits, each
+// with the key sizes or curves allowed for it. The list is exhaustive.
+type PublicKey struct {
+	Algorithms []KeyAlgorithm `yaml:"algorithms"`
+}
+
+// KeyAlgorithm describes one permitted public key algorithm.
+type KeyAlgorithm struct {
+	// Name is a well-known algorithm name such as `rsaEncryption`, or a raw
+	// OID.
+	Name string `yaml:"name"`
+	// KeySizes lists the permitted key sizes in bits. Only meaningful for
+	// algorithms whose keys have a variable size, such as RSA.
+	KeySizes []int `yaml:"key_sizes"`
+	// Curves lists the permitted named curves. Only meaningful for elliptic
+	// curve algorithms.
+	Curves []string `yaml:"curves"`
 }
 
 // SerialNumber describes the requirements for the certificate serial number.
@@ -1479,6 +1550,22 @@ func validateTransparency(p *Profile) []string {
 func ValidateProfile(p *Profile) []string {
 	var errs []string
 
+	// A certificate always carries a version, so leaving it unstated would
+	// leave the field unchecked rather than constrained.
+	if p.Requirements.Version <= 0 {
+		errs = append(errs,
+			"requirements.version is missing; a profile must state the X.509 version it describes")
+	}
+
+	// The validity period is a bound rather than a list, so leaving it out has
+	// no strict reading the way an empty list does: it would simply go
+	// unchecked. A profile must therefore state it.
+	if p.Requirements.Validity.MaximumDays <= 0 {
+		errs = append(errs,
+			"requirements.validity.maximum_days is missing; a profile must state the maximum "+
+				"validity period it permits, as a number of days greater than zero")
+	}
+
 	// Check recognized_by
 	if oid := p.Profile.RecognizedBy.PolicyOID; oid != "" {
 		if !IsValidOID(oid) {
@@ -1508,6 +1595,24 @@ func ValidateProfile(p *Profile) []string {
 			errs = append(errs, fmt.Sprintf("unknown subject attribute: %q", fieldName))
 		}
 	}
+
+	// Check issuer attributes
+	for fieldName := range p.Requirements.Issuer.Attributes {
+		if !IsSupportedSubjectAttribute(fieldName) {
+			errs = append(errs, fmt.Sprintf("unknown issuer attribute: %q", fieldName))
+		}
+	}
+
+	// Check signature algorithms
+	for _, name := range p.Requirements.SignatureAlgorithm.Allowed {
+		if _, ok := SignatureAlgorithmOID(name); !ok {
+			errs = append(errs, fmt.Sprintf(
+				"unknown signature algorithm %q in requirements.signature_algorithm.allowed", name))
+		}
+	}
+
+	// Check public key algorithms
+	errs = append(errs, validatePublicKey(p.Requirements.PublicKey)...)
 
 	// Check the Certificate Transparency extension pair. A profile that
 	// describes Precertificates must permit the poison extension, and the
@@ -1651,6 +1756,155 @@ func ValidateProfile(p *Profile) []string {
 	return errs
 }
 
+// ---------- Signature and public key algorithms ----------
+
+// AlgorithmMeta describes an algorithm identifier.
+type AlgorithmMeta struct {
+	// DisplayName is the human-readable name used in generated documents.
+	DisplayName string
+	// OID is the dotted-decimal object identifier of the algorithm.
+	OID string
+}
+
+// SignatureAlgorithmInfo maps the signature algorithm names understood by the
+// tools to their metadata. Names follow the spelling used in the RFCs that
+// register them.
+var SignatureAlgorithmInfo = map[string]AlgorithmMeta{
+	"sha256WithRSAEncryption": {"SHA-256 with RSA", "1.2.840.113549.1.1.11"},
+	"sha384WithRSAEncryption": {"SHA-384 with RSA", "1.2.840.113549.1.1.12"},
+	"sha512WithRSAEncryption": {"SHA-512 with RSA", "1.2.840.113549.1.1.13"},
+	"id-RSASSA-PSS":           {"RSASSA-PSS", "1.2.840.113549.1.1.10"},
+	"ecdsa-with-SHA256":       {"ECDSA with SHA-256", "1.2.840.10045.4.3.2"},
+	"ecdsa-with-SHA384":       {"ECDSA with SHA-384", "1.2.840.10045.4.3.3"},
+	"ecdsa-with-SHA512":       {"ECDSA with SHA-512", "1.2.840.10045.4.3.4"},
+	"id-Ed25519":              {"Ed25519", "1.3.101.112"},
+	"id-Ed448":                {"Ed448", "1.3.101.113"},
+}
+
+// ECPublicKeyOID identifies an elliptic curve public key, whose permitted
+// values are named curves rather than key sizes.
+const ECPublicKeyOID = "1.2.840.10045.2.1"
+
+// KeyAlgorithmInfo maps the public key algorithm names understood by the tools
+// to their metadata.
+var KeyAlgorithmInfo = map[string]AlgorithmMeta{
+	"rsaEncryption":  {"RSA", "1.2.840.113549.1.1.1"},
+	"id-RSASSA-PSS":  {"RSASSA-PSS", "1.2.840.113549.1.1.10"},
+	"id-ecPublicKey": {"Elliptic Curve", ECPublicKeyOID},
+	"id-Ed25519":     {"Ed25519", "1.3.101.112"},
+	"id-Ed448":       {"Ed448", "1.3.101.113"},
+}
+
+// CurveAliases maps the accepted spellings of a named curve to the name Go
+// reports for it, so that a profile may say `secp256r1`, `prime256v1` or
+// `P-256` and mean the same curve.
+var CurveAliases = map[string]string{
+	"p-256":      "P-256",
+	"p-384":      "P-384",
+	"p-521":      "P-521",
+	"secp256r1":  "P-256",
+	"secp384r1":  "P-384",
+	"secp521r1":  "P-521",
+	"prime256v1": "P-256",
+	"nistp256":   "P-256",
+	"nistp384":   "P-384",
+	"nistp521":   "P-521",
+}
+
+// CanonicalCurve resolves a curve spelling to the name Go reports. The second
+// result reports whether the curve is known.
+func CanonicalCurve(name string) (string, bool) {
+	canonical, ok := CurveAliases[strings.ToLower(strings.TrimSpace(name))]
+	return canonical, ok
+}
+
+// algorithmOID resolves an entry that may be a well-known name or a raw OID.
+func algorithmOID(info map[string]AlgorithmMeta, value string) (string, bool) {
+	if meta, ok := info[value]; ok {
+		return meta.OID, true
+	}
+	if IsValidOID(value) {
+		return value, true
+	}
+	return "", false
+}
+
+// algorithmName returns the name registered for an OID, or "" when the OID is
+// not one of the well-known algorithms.
+func algorithmName(info map[string]AlgorithmMeta, oid string) string {
+	for name, meta := range info {
+		if meta.OID == oid {
+			return name
+		}
+	}
+	return ""
+}
+
+// SignatureAlgorithmOID resolves a profile entry to its OID. Entries may be
+// written as a well-known name or as a raw OID.
+func SignatureAlgorithmOID(value string) (string, bool) {
+	return algorithmOID(SignatureAlgorithmInfo, value)
+}
+
+// KeyAlgorithmOID resolves a profile entry to its OID. Entries may be written
+// as a well-known name or as a raw OID.
+func KeyAlgorithmOID(value string) (string, bool) {
+	return algorithmOID(KeyAlgorithmInfo, value)
+}
+
+// AlgorithmDisplay renders an algorithm OID as "name (oid)" when the OID is
+// well known, and as the bare OID otherwise.
+func AlgorithmDisplay(info map[string]AlgorithmMeta, oid string) string {
+	if name := algorithmName(info, oid); name != "" {
+		return fmt.Sprintf("%s (%s)", info[name].DisplayName, oid)
+	}
+	return oid
+}
+
+// validatePublicKey reports anything in a public key requirement that the
+// tools cannot interpret, including sizes and curves given for an algorithm
+// that has no such parameter.
+func validatePublicKey(pk PublicKey) []string {
+	var errs []string
+
+	for i, alg := range pk.Algorithms {
+		path := fmt.Sprintf("requirements.public_key.algorithms[%d]", i)
+		if strings.TrimSpace(alg.Name) == "" {
+			errs = append(errs, fmt.Sprintf("%s is missing 'name'", path))
+			continue
+		}
+
+		oid, ok := KeyAlgorithmOID(alg.Name)
+		if !ok {
+			errs = append(errs, fmt.Sprintf("unknown public key algorithm %q in %s", alg.Name, path))
+			continue
+		}
+
+		isEC := oid == ECPublicKeyOID
+		if len(alg.Curves) > 0 && !isEC {
+			errs = append(errs, fmt.Sprintf(
+				"%s: algorithm %q is not an elliptic curve algorithm and does not take 'curves'", path, alg.Name))
+		}
+		if len(alg.KeySizes) > 0 && isEC {
+			errs = append(errs, fmt.Sprintf(
+				"%s: an elliptic curve key is described by its curve, not by 'key_sizes'", path))
+		}
+
+		for _, curve := range alg.Curves {
+			if _, ok := CanonicalCurve(curve); !ok {
+				errs = append(errs, fmt.Sprintf("unknown curve %q in %s.curves", curve, path))
+			}
+		}
+		for _, size := range alg.KeySizes {
+			if size <= 0 {
+				errs = append(errs, fmt.Sprintf("invalid key size %d in %s.key_sizes", size, path))
+			}
+		}
+	}
+
+	return errs
+}
+
 // KnownExtKeyUsages lists the extended key usage names understood by the tools.
 var KnownExtKeyUsages = map[string]bool{
 	"serverAuth":      true,
@@ -1747,19 +2001,22 @@ func keys(names ...string) map[string]bool {
 }
 
 var (
-	topLevelKeys          = keys("profile", "requirements", "rules")
-	profileKeys           = keys("name", "version", "recognized_by")
-	recognizedByKeys      = keys("policy_oid")
-	requirementKeys       = keys("validity", "serial_number", "subject", "extensions")
-	validityKeys          = keys("maximum_days")
-	serialNumberKeys      = keys("required", "maximum_bit_length", "minimum_octets", "textual_requirement")
-	subjectKeys           = keys("attributes")
-	subjectFieldKeys      = keys("required", "length")
-	lengthKeys            = keys("min", "max")
-	ruleKeys              = keys("id", "text")
-	defaultExtensionKeys  = keys("critical", "required")
-	accessDescriptionKeys = keys("access_method", "required")
-	distributionPointKeys = keys("full_name", "name_relative_to_crl_issuer", "reasons", "crl_issuer", "required")
+	topLevelKeys           = keys("profile", "requirements", "rules")
+	profileKeys            = keys("name", "version", "recognized_by")
+	recognizedByKeys       = keys("policy_oid")
+	requirementKeys        = keys("version", "serial_number", "signature_algorithm", "issuer", "validity", "subject", "public_key", "extensions")
+	signatureAlgorithmKeys = keys("allowed")
+	publicKeyKeys          = keys("algorithms")
+	keyAlgorithmKeys       = keys("name", "key_sizes", "curves")
+	validityKeys           = keys("maximum_days")
+	serialNumberKeys       = keys("required", "maximum_bit_length", "minimum_octets", "textual_requirement")
+	subjectKeys            = keys("attributes")
+	subjectFieldKeys       = keys("required", "length")
+	lengthKeys             = keys("min", "max")
+	ruleKeys               = keys("id", "text")
+	defaultExtensionKeys   = keys("critical", "required")
+	accessDescriptionKeys  = keys("access_method", "required")
+	distributionPointKeys  = keys("full_name", "name_relative_to_crl_issuer", "reasons", "crl_issuer", "required")
 
 	extensionKeys = map[string]map[string]bool{
 		"basic_constraints":            keys("critical", "required", "ca"),
@@ -1809,6 +2066,43 @@ func asMap(v interface{}) (map[string]interface{}, bool) {
 	return m, ok
 }
 
+// validateDNKeys checks the keys of a distinguished name block, which is the
+// same shape for the issuer and the subject.
+func validateDNKeys(dn map[string]interface{}, path string) []string {
+	var errs []string
+
+	// Detect the older flat layout, where attributes were written directly
+	// under the name, and explain the fix.
+	for name := range dn {
+		if !subjectKeys[name] && ValidatedSubjectFields[name] {
+			errs = append(errs, fmt.Sprintf("attribute %q must be nested under %s.attributes", name, path))
+		}
+	}
+	errs = append(errs, checkKeys(dn, subjectKeys, path)...)
+
+	attrs, ok := asMap(dn["attributes"])
+	if !ok {
+		return errs
+	}
+	names := make([]string, 0, len(attrs))
+	for name := range attrs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		f, ok := asMap(attrs[name])
+		if !ok {
+			continue
+		}
+		base := path + ".attributes." + name
+		errs = append(errs, checkKeys(f, subjectFieldKeys, base)...)
+		if l, ok := asMap(f["length"]); ok {
+			errs = append(errs, checkKeys(l, lengthKeys, base+".length")...)
+		}
+	}
+	return errs
+}
+
 // ValidateRaw walks the raw YAML tree and reports every key the tools do not
 // understand, so that unsupported profile content can never be silently ignored.
 func ValidateRaw(raw map[string]interface{}) []string {
@@ -1826,6 +2120,24 @@ func ValidateRaw(raw map[string]interface{}) []string {
 	if req, ok := asMap(raw["requirements"]); ok {
 		errs = append(errs, checkKeys(req, requirementKeys, "requirements")...)
 
+		if sa, ok := asMap(req["signature_algorithm"]); ok {
+			errs = append(errs, checkKeys(sa, signatureAlgorithmKeys, "requirements.signature_algorithm")...)
+		}
+
+		if pk, ok := asMap(req["public_key"]); ok {
+			errs = append(errs, checkKeys(pk, publicKeyKeys, "requirements.public_key")...)
+			if algs, ok := pk["algorithms"].([]interface{}); ok {
+				for i, entry := range algs {
+					a, ok := asMap(entry)
+					if !ok {
+						continue
+					}
+					errs = append(errs, checkKeys(a, keyAlgorithmKeys,
+						fmt.Sprintf("requirements.public_key.algorithms[%d]", i))...)
+				}
+			}
+		}
+
 		if v, ok := asMap(req["validity"]); ok {
 			errs = append(errs, checkKeys(v, validityKeys, "requirements.validity")...)
 		}
@@ -1834,35 +2146,12 @@ func ValidateRaw(raw map[string]interface{}) []string {
 			errs = append(errs, checkKeys(sn, serialNumberKeys, "requirements.serial_number")...)
 		}
 
-		if subj, ok := asMap(req["subject"]); ok {
-			// Detect the older flat layout, where attributes were written
-			// directly under requirements.subject, and explain the fix.
-			for name := range subj {
-				if !subjectKeys[name] && ValidatedSubjectFields[name] {
-					errs = append(errs, fmt.Sprintf(
-						"subject attribute %q must be nested under requirements.subject.attributes", name))
-				}
+		for _, name := range []string{"issuer", "subject"} {
+			dn, ok := asMap(req[name])
+			if !ok {
+				continue
 			}
-			errs = append(errs, checkKeys(subj, subjectKeys, "requirements.subject")...)
-
-			if attrs, ok := asMap(subj["attributes"]); ok {
-				names := make([]string, 0, len(attrs))
-				for name := range attrs {
-					names = append(names, name)
-				}
-				sort.Strings(names)
-				for _, name := range names {
-					f, ok := asMap(attrs[name])
-					if !ok {
-						continue
-					}
-					base := "requirements.subject.attributes." + name
-					errs = append(errs, checkKeys(f, subjectFieldKeys, base)...)
-					if l, ok := asMap(f["length"]); ok {
-						errs = append(errs, checkKeys(l, lengthKeys, base+".length")...)
-					}
-				}
-			}
+			errs = append(errs, validateDNKeys(dn, "requirements."+name)...)
 		}
 
 		if exts, ok := asMap(req["extensions"]); ok {

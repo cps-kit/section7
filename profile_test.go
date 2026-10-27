@@ -108,8 +108,9 @@ func TestInterpolateText(t *testing.T) {
 // TestValidateProfileValid tests that valid profiles pass validation.
 func TestValidateProfileValid(t *testing.T) {
 	validProfile := &Profile{
-		Profile: Meta{Name: "Test Profile", Version: 3},
+		Profile: Meta{Name: "Test Profile"},
 		Requirements: Requirements{
+			Version:  3,
 			Validity: Validity{MaximumDays: 398},
 			Subject: DistinguishedName{
 				Attributes: map[string]Field{
@@ -135,7 +136,7 @@ func TestValidateProfileValid(t *testing.T) {
 // TestValidateProfileInvalidSubjectField tests that unknown subject attributes are detected.
 func TestValidateProfileInvalidSubjectField(t *testing.T) {
 	invalidProfile := &Profile{
-		Profile: Meta{Name: "Bad Profile", Version: 3},
+		Profile: Meta{Name: "Bad Profile"},
 		Requirements: Requirements{
 			Validity: Validity{MaximumDays: 398},
 			Subject: DistinguishedName{
@@ -167,7 +168,7 @@ func TestValidateProfileInvalidSubjectField(t *testing.T) {
 // TestValidateProfileInvalidExtension tests that unknown extensions are detected.
 func TestValidateProfileInvalidExtension(t *testing.T) {
 	invalidProfile := &Profile{
-		Profile: Meta{Name: "Bad Profile", Version: 3},
+		Profile: Meta{Name: "Bad Profile"},
 		Requirements: Requirements{
 			Validity: Validity{MaximumDays: 398},
 			Extensions: map[string]Extension{
@@ -197,8 +198,10 @@ func TestValidateProfileInvalidExtension(t *testing.T) {
 // TestValidateProfileMultipleErrors tests that all errors are reported.
 func TestValidateProfileMultipleErrors(t *testing.T) {
 	invalidProfile := &Profile{
-		Profile: Meta{Name: "Bad Profile", Version: 3},
+		Profile: Meta{Name: "Bad Profile"},
 		Requirements: Requirements{
+			Version:  3,
+			Validity: Validity{MaximumDays: 398},
 			Subject: DistinguishedName{
 				Attributes: map[string]Field{
 					"phone_number":  {Required: false}, // UNKNOWN 1
@@ -218,22 +221,77 @@ func TestValidateProfileMultipleErrors(t *testing.T) {
 	}
 }
 
-// TestValidateProfileEmptyRequirements tests that empty requirements are valid.
-func TestValidateProfileEmptyRequirements(t *testing.T) {
+// TestValidateProfileRequiresValidity tests that a profile must state the
+// validity period it permits. Unlike a list of permitted values, a bound that
+// is left out cannot be read strictly; it would simply go unchecked.
+func TestValidateProfileRequiresValidity(t *testing.T) {
 	emptyProfile := &Profile{
-		Profile: Meta{Name: "Empty Profile", Version: 3},
+		Profile: Meta{Name: "Empty Profile"},
 		Requirements: Requirements{
 			Validity: Validity{MaximumDays: 0},
 		},
 	}
 
 	errs := ValidateProfile(emptyProfile)
-	if len(errs) > 0 {
-		t.Errorf("ValidateProfile on empty requirements should not return errors: %v", errs)
+	found := false
+	for _, err := range errs {
+		if strings.Contains(err, "requirements.validity.maximum_days is missing") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("an unstated validity period should be reported, got: %v", errs)
 	}
 }
 
 // ---------- Helpers ----------
+
+// TestVersionSpellings verifies requirements.version accepts only v1, v2 and
+// v3, and profile.version accepts only a positive integer.
+func TestVersionSpellings(t *testing.T) {
+	tests := []struct {
+		name, profileVersion, certVersion string
+		wantErr                           string
+	}{
+		{"both valid", "7", "v3", ""},
+		{"v1", "1", "v1", ""},
+		{"bare number", "1", "3", "must be v1, v2 or v3"},
+		{"quoted number", "1", `"3"`, "must be v1, v2 or v3"},
+		{"v4", "1", "v4", "must be v1, v2 or v3"},
+		{"profile v-prefix", "v3", "v3", "must be a positive integer"},
+		{"profile float", "1.5", "v3", "must be a positive integer"},
+		{"profile quoted", `"2"`, "v3", "must be a positive integer"},
+		{"profile zero", "0", "v3", "must be a positive integer"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "p.yaml")
+			doc := "profile:\n  name: Versions\n  version: " + tt.profileVersion +
+				"\nrequirements:\n  version: " + tt.certVersion + "\n"
+			if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
+				t.Fatalf("writing profile: %v", err)
+			}
+			_, err := Load(path)
+			switch {
+			case tt.wantErr == "" && err != nil:
+				t.Errorf("should load, got: %v", err)
+			case tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)):
+				t.Errorf("should fail with %q, got: %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+// TestValidateProfileRequiresVersion verifies the certificate version must be
+// stated, as the validity period must.
+func TestValidateProfileRequiresVersion(t *testing.T) {
+	errs := ValidateProfile(&Profile{
+		Requirements: Requirements{Validity: Validity{MaximumDays: 398}},
+	})
+	if len(errs) != 1 || !strings.Contains(errs[0], "requirements.version is missing") {
+		t.Errorf("an unstated certificate version should be reported, got: %v", errs)
+	}
+}
 
 // loadYAML writes a profile to a temp file and loads it.
 func loadYAML(t *testing.T, yaml string) *Loaded {
@@ -257,8 +315,10 @@ func TestGeneralNameValuesAccepted(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: SAN Values
-  version: 3
 requirements:
+  version: v3
+  validity:
+    maximum_days: 398
   extensions:
     subject_alt_name:
       required: true
@@ -285,8 +345,10 @@ func TestGeneralNameAliasesAccepted(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: SAN Aliases
-  version: 3
 requirements:
+  version: v3
+  validity:
+    maximum_days: 398
   extensions:
     subject_alt_name:
       required: true
@@ -324,7 +386,6 @@ func TestGeneralNameUnknownRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: SAN Bad Value
-  version: 3
 requirements:
   extensions:
     subject_alt_name:
@@ -381,7 +442,6 @@ func TestGeneralNameValuesRejectedElsewhere(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: SAN Wrong Place
-  version: 3
 requirements:
   extensions:
     basic_constraints:
@@ -409,8 +469,10 @@ func TestPresenceParsing(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Presence
-  version: 3
 requirements:
+  version: v3
+  validity:
+    maximum_days: 398
   extensions:
     basic_constraints:
       required: true
@@ -483,7 +545,6 @@ func TestPresenceInvalidValue(t *testing.T) {
 	content := `
 profile:
   name: Bad Presence
-  version: 3
 requirements:
   extensions:
     subject_alt_name:
@@ -508,7 +569,6 @@ func TestTransparencyPoisonMustBePrecertificateOnly(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Poison Always
-  version: 3
 requirements:
   extensions:
     precertificate_poison:
@@ -533,7 +593,6 @@ func TestTransparencyPoisonMustBeCritical(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Poison Not Critical
-  version: 3
 requirements:
   extensions:
     precertificate_poison:
@@ -559,7 +618,6 @@ func TestTransparencySCTsCannotBeUnconditional(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: SCTs Always
-  version: 3
 requirements:
   extensions:
     signed_certificate_timestamps:
@@ -587,7 +645,6 @@ func TestTransparencyFinalOnlyNeedsPoison(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: SCTs Final Only
-  version: 3
 requirements:
   extensions:
     signed_certificate_timestamps:
@@ -678,8 +735,10 @@ profile:
   name: Arcs
   recognized_by:
     policy_oid: 2.23.140.1.2.1
-  version: 3
 requirements:
+  version: v3
+  validity:
+    maximum_days: 398
   extensions:
     certificate_policies:
       required: true
@@ -704,7 +763,6 @@ func TestOptionalArcsInvalidRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Bad Arc
-  version: 3
 requirements:
   extensions:
     certificate_policies:
@@ -731,7 +789,6 @@ func TestOptionalArcsRejectedOnNonOIDExtension(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Arc Wrong Place
-  version: 3
 requirements:
   extensions:
     key_usage:
@@ -760,8 +817,10 @@ func TestSubjectAttributeCanonicalKeys(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Canonical Keys
-  version: 3
 requirements:
+  version: v3
+  validity:
+    maximum_days: 398
   subject:
     attributes:
       common_name:
@@ -786,8 +845,10 @@ func TestSubjectAttributeAliases(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Aliases
-  version: 3
 requirements:
+  version: v3
+  validity:
+    maximum_days: 398
   subject:
     attributes:
       country:
@@ -857,8 +918,10 @@ func TestCriticalityParsing(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Criticality
-  version: 3
 requirements:
+  version: v3
+  validity:
+    maximum_days: 398
   extensions:
     basic_constraints:
       required: true
@@ -925,7 +988,6 @@ func TestCriticalityInvalidValue(t *testing.T) {
 	content := `
 profile:
   name: Bad Criticality
-  version: 3
 requirements:
   extensions:
     subject_alt_name:
@@ -949,8 +1011,10 @@ func TestAccessDescriptionsParse(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: AIA
-  version: 3
 requirements:
+  version: v3
+  validity:
+    maximum_days: 398
   extensions:
     authority_information_access:
       required: true
@@ -984,7 +1048,6 @@ func TestAccessDescriptionUnknownMethodRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: AIA Bad Method
-  version: 3
 requirements:
   extensions:
     authority_information_access:
@@ -1012,7 +1075,6 @@ func TestAccessDescriptionDuplicateRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: AIA Duplicate
-  version: 3
 requirements:
   extensions:
     authority_information_access:
@@ -1042,7 +1104,6 @@ func TestAccessDescriptionsRejectedOnOtherExtensions(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: AIA Wrong Place
-  version: 3
 requirements:
   extensions:
     key_usage:
@@ -1070,7 +1131,6 @@ func TestAccessDescriptionUnknownKeyRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: AIA Bad Key
-  version: 3
 requirements:
   extensions:
     authority_information_access:
@@ -1099,8 +1159,10 @@ func TestExtensionRequiredIsBoolean(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Extension Shape
-  version: 3
 requirements:
+  version: v3
+  validity:
+    maximum_days: 398
   extensions:
     basic_constraints:
       required: true
@@ -1150,7 +1212,6 @@ func TestExtensionLegacyRequiredListRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Legacy Required
-  version: 3
 requirements:
   extensions:
     extended_key_usage:
@@ -1176,7 +1237,6 @@ func TestExtensionLegacyOptionalRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Legacy Optional
-  version: 3
 requirements:
   extensions:
     extended_key_usage:
@@ -1203,7 +1263,6 @@ func TestExtensionValuesRejectedOnUnsupportedExtension(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Values Where Unsupported
-  version: 3
 requirements:
   extensions:
     basic_constraints:
@@ -1229,8 +1288,10 @@ func TestSubjectNestedAttributesParse(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Nested Subject
-  version: 3
 requirements:
+  version: v3
+  validity:
+    maximum_days: 398
   subject:
     attributes:
       organization_name:
@@ -1275,7 +1336,6 @@ func TestSubjectFlatLayoutRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Flat Subject
-  version: 3
 requirements:
   subject:
     organization_name:
@@ -1304,7 +1364,6 @@ func TestSubjectUnknownKeyRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Bad Subject Key
-  version: 3
 requirements:
   subject:
     bogus: 1
@@ -1332,7 +1391,6 @@ func TestSubjectRequiredKeyRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Retired Subject Key
-  version: 3
 requirements:
   subject:
     required: true
@@ -1360,7 +1418,6 @@ func TestSubjectUnknownAttributeKeyRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Bad Attribute Key
-  version: 3
 requirements:
   subject:
     attributes:
@@ -1379,6 +1436,129 @@ requirements:
 	}
 	if !found {
 		t.Errorf("an unknown key inside an attribute should be reported, got: %v", errs)
+	}
+}
+
+// ---------- Signature and public key algorithms ----------
+
+// TestAlgorithmsAccepted verifies well-formed algorithm requirements validate.
+func TestAlgorithmsAccepted(t *testing.T) {
+	loaded := loadYAML(t, `
+profile:
+  name: Algorithms
+requirements:
+  version: v3
+  validity:
+    maximum_days: 398
+  signature_algorithm:
+    allowed:
+      - sha256WithRSAEncryption
+      - ecdsa-with-SHA384
+  public_key:
+    algorithms:
+      - name: rsaEncryption
+        key_sizes:
+          - 2048
+          - 4096
+      - name: id-ecPublicKey
+        curves:
+          - P-256
+          - secp384r1
+`)
+
+	if errs := loaded.Validate(); len(errs) > 0 {
+		t.Fatalf("well-formed algorithm requirements should validate, got: %v", errs)
+	}
+
+	req := loaded.Profile.Requirements
+	if len(req.SignatureAlgorithm.Allowed) != 2 {
+		t.Errorf("both signature algorithms should be parsed, got: %v", req.SignatureAlgorithm.Allowed)
+	}
+	if len(req.PublicKey.Algorithms) != 2 {
+		t.Fatalf("both key algorithms should be parsed, got: %v", req.PublicKey.Algorithms)
+	}
+	if got := req.PublicKey.Algorithms[0].KeySizes; len(got) != 2 || got[0] != 2048 {
+		t.Errorf("key sizes should be parsed, got: %v", got)
+	}
+}
+
+// TestUnknownSignatureAlgorithmRejected verifies an algorithm the tools cannot
+// interpret is reported rather than silently ignored.
+func TestUnknownSignatureAlgorithmRejected(t *testing.T) {
+	loaded := loadYAML(t, `
+profile:
+  name: Bad Algorithm
+requirements:
+  signature_algorithm:
+    allowed:
+      - md5WithRSAAndPrayer
+`)
+
+	errs := loaded.Validate()
+	found := false
+	for _, err := range errs {
+		if strings.Contains(err, "md5WithRSAAndPrayer") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("an unknown signature algorithm should be reported, got: %v", errs)
+	}
+}
+
+// TestPublicKeyParameterMismatchRejected verifies that a parameter given for an
+// algorithm that has no such parameter is reported.
+func TestPublicKeyParameterMismatchRejected(t *testing.T) {
+	loaded := loadYAML(t, `
+profile:
+  name: Wrong Parameters
+requirements:
+  public_key:
+    algorithms:
+      - name: rsaEncryption
+        curves:
+          - P-256
+      - name: id-ecPublicKey
+        key_sizes:
+          - 256
+      - name: id-ecPublicKey
+        curves:
+          - P-128
+`)
+
+	errs := loaded.Validate()
+	joined := strings.Join(errs, " ")
+	for _, want := range []string{"does not take 'curves'", "not by 'key_sizes'", "unknown curve"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("errors should mention %q, got: %v", want, errs)
+		}
+	}
+}
+
+// TestIssuerAttributesValidated verifies the issuer is held to the same
+// attribute registry as the subject.
+func TestIssuerAttributesValidated(t *testing.T) {
+	loaded := loadYAML(t, `
+profile:
+  name: Bad Issuer
+requirements:
+  issuer:
+    attributes:
+      common_name:
+        required: true
+      phone_number:
+        required: false
+`)
+
+	errs := loaded.Validate()
+	found := false
+	for _, err := range errs {
+		if strings.Contains(err, "unknown issuer attribute") && strings.Contains(err, "phone_number") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("an unknown issuer attribute should be reported, got: %v", errs)
 	}
 }
 
@@ -1407,6 +1587,7 @@ func TestExtendsInheritsAndOverrides(t *testing.T) {
 	loaded := loadFiles(t, "child.yaml", map[string]string{
 		"_base.yaml": `
 requirements:
+  version: v3
   validity:
     maximum_days: 398
   subject:
@@ -1423,7 +1604,7 @@ requirements:
 extends: _base.yaml
 profile:
   name: Child
-  version: 3
+  version: 2
 requirements:
   validity:
     maximum_days: 200
@@ -1450,6 +1631,12 @@ requirements:
 	}
 	if !req.Subject.Attributes["country_name"].Required {
 		t.Error("country_name's required flag should be inherited from the base")
+	}
+	if req.Version != 3 {
+		t.Errorf("requirements.version should be inherited from the base, got %v", req.Version)
+	}
+	if loaded.Profile.Profile.Version != 2 {
+		t.Errorf("profile.version should be the profile's own revision, got %v", loaded.Profile.Profile.Version)
 	}
 	for _, attr := range []string{"country_name", "common_name"} {
 		if _, ok := req.Subject.Attributes[attr]; !ok {
@@ -1481,7 +1668,6 @@ requirements:
 extends: _base.yaml
 profile:
   name: Strict Child
-  version: 3
 requirements:
   extensions:
     extended_key_usage:
@@ -1526,7 +1712,6 @@ extends:
   - _second.yaml
 profile:
   name: Mixed
-  version: 3
 `,
 	})
 

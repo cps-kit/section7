@@ -10,8 +10,9 @@ import (
 // TestRenderProfile tests the basic profile rendering functionality.
 func TestRenderProfile(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
+			Version:  3,
 			Validity: section7.Validity{MaximumDays: 398},
 			Subject: section7.DistinguishedName{
 				Attributes: map[string]section7.Field{
@@ -37,7 +38,7 @@ func TestRenderProfile(t *testing.T) {
 	rendered := renderProfile(p, raw)
 
 	// Check that key sections are present
-	if !strings.Contains(rendered, "## Certificate Profile: Test Profile") {
+	if !strings.Contains(rendered, "## Certificate Profile: Test Profile (X.509v3)") {
 		t.Error("rendered profile should contain profile name")
 	}
 	if !strings.Contains(rendered, "### Validity") {
@@ -60,8 +61,9 @@ func TestRenderProfile(t *testing.T) {
 // TestRenderProfileWithLengthConstraints tests rendering with min/max length.
 func TestRenderProfileWithLengthConstraints(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Length Test", Version: 3},
+		Profile: section7.Meta{Name: "Length Test"},
 		Requirements: section7.Requirements{
+			Version: 3,
 			Subject: section7.DistinguishedName{
 				Attributes: map[string]section7.Field{
 					"country":           {Required: true, Length: section7.FieldLength{Min: intPtr(2), Max: intPtr(2)}},
@@ -88,8 +90,9 @@ func TestRenderProfileWithLengthConstraints(t *testing.T) {
 func TestRenderProfileExtensionDetails(t *testing.T) {
 	ca := false
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Ext Test", Version: 3},
+		Profile: section7.Meta{Name: "Ext Test"},
 		Requirements: section7.Requirements{
+			Version: 3,
 			Extensions: map[string]section7.Extension{
 				"basic_constraints":  {Required: section7.PresenceRequired, Critical: section7.CriticalityRequired, CA: &ca},
 				"extended_key_usage": {Required: section7.PresenceRequired, Critical: section7.CriticalityForbidden, RequiredValues: []string{"serverAuth", "clientAuth"}},
@@ -128,8 +131,9 @@ func TestRenderProfileExtensionDetails(t *testing.T) {
 // TestRenderProfileWithoutLengthConstraints tests rendering without min/max length.
 func TestRenderProfileWithoutLengthConstraints(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "No Length Test", Version: 3},
+		Profile: section7.Meta{Name: "No Length Test"},
 		Requirements: section7.Requirements{
+			Version: 3,
 			Subject: section7.DistinguishedName{
 				Attributes: map[string]section7.Field{
 					"common_name": {Required: true},
@@ -149,8 +153,9 @@ func TestRenderProfileWithoutLengthConstraints(t *testing.T) {
 // makes the subject mandatory in prose.
 func TestRenderProfileSubjectWithRequiredAttributes(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Subject Test", Version: 3},
+		Profile: section7.Meta{Name: "Subject Test"},
 		Requirements: section7.Requirements{
+			Version: 3,
 			Subject: section7.DistinguishedName{
 				Attributes: map[string]section7.Field{
 					"country":           {Required: true, Length: section7.FieldLength{Min: intPtr(2), Max: intPtr(2)}},
@@ -180,8 +185,9 @@ func TestRenderProfileSubjectWithRequiredAttributes(t *testing.T) {
 // subject may be empty.
 func TestRenderProfileSubjectWithoutRequiredAttributes(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Optional Subject", Version: 3},
+		Profile: section7.Meta{Name: "Optional Subject"},
 		Requirements: section7.Requirements{
+			Version: 3,
 			Subject: section7.DistinguishedName{
 				Attributes: map[string]section7.Field{
 					"country": {Required: false},
@@ -203,12 +209,105 @@ func TestRenderProfileSubjectWithoutRequiredAttributes(t *testing.T) {
 	}
 }
 
+// TestRenderProfileFollowsCertificateOrder checks sections follow the
+// TBSCertificate field order and attribute rows follow the encoding order of
+// Section 7.1.4.2 of the Baseline Requirements.
+func TestRenderProfileFollowsCertificateOrder(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Order Test"},
+		Requirements: section7.Requirements{
+			Version:            3,
+			SerialNumber:       section7.SerialNumber{Required: true, Declared: true},
+			SignatureAlgorithm: section7.SignatureAlgorithm{Allowed: []string{"sha256WithRSAEncryption"}},
+			Issuer: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{"common_name": {Required: true}},
+			},
+			Validity: section7.Validity{MaximumDays: 398},
+			Subject: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{
+					"common_name":       {Required: true},
+					"organization_name": {Required: true},
+					"country_name":      {Required: true},
+				},
+			},
+			PublicKey: section7.PublicKey{
+				Algorithms: []section7.KeyAlgorithm{{Name: "rsaEncryption", KeySizes: []int{2048}}},
+			},
+			Extensions: map[string]section7.Extension{
+				"basic_constraints": {Critical: section7.CriticalityRequired},
+			},
+		},
+	}
+
+	rendered := renderProfile(p, map[string]interface{}{})
+
+	inOrder := func(what string, items ...string) {
+		t.Helper()
+		pos := 0
+		for _, item := range items {
+			i := strings.Index(rendered[pos:], item)
+			if i == -1 {
+				t.Errorf("%s: %q should appear after the preceding item, got:\n%s", what, item, rendered)
+				return
+			}
+			pos += i + len(item)
+		}
+	}
+
+	inOrder("sections",
+		"### Serial Number", "### Signature Algorithm", "### Issuer DN Requirements",
+		"### Validity", "### Subject DN Requirements", "### Subject Public Key", "### Extensions")
+	inOrder("subject attributes",
+		"### Subject DN Requirements", "| countryName |", "| organizationName |", "| commonName |")
+	if !strings.Contains(rendered, "MUST be present: `countryName`, `organizationName`, `commonName`.") {
+		t.Errorf("required attributes should be listed in encoding order, got:\n%s", rendered)
+	}
+}
+
+// TestRenderProfileAlgorithmsAndIssuer checks the signature algorithm, public
+// key and issuer sections are rendered when a profile states them.
+func TestRenderProfileAlgorithmsAndIssuer(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Fields Test"},
+		Requirements: section7.Requirements{
+			Version:            3,
+			SignatureAlgorithm: section7.SignatureAlgorithm{Allowed: []string{"ecdsa-with-SHA256"}},
+			PublicKey: section7.PublicKey{
+				Algorithms: []section7.KeyAlgorithm{
+					{Name: "rsaEncryption", KeySizes: []int{2048, 4096}},
+					{Name: "id-ecPublicKey", Curves: []string{"P-256"}},
+				},
+			},
+			Issuer: section7.DistinguishedName{
+				Attributes: map[string]section7.Field{"common_name": {Required: true}},
+			},
+		},
+	}
+
+	rendered := renderProfile(p, map[string]interface{}{})
+
+	for _, want := range []string{
+		"### Signature Algorithm",
+		"| ECDSA with SHA-256 | 1.2.840.10045.4.3.2 |",
+		"### Subject Public Key",
+		"| RSA | 1.2.840.113549.1.1.1 | 2048, 4096 | - |",
+		"| Elliptic Curve | 1.2.840.10045.2.1 | - | P-256 |",
+		"### Issuer DN Requirements",
+		"| commonName | CN | 2.5.4.3 | Yes |",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered profile should contain %q, got:\n%s", want, rendered)
+		}
+	}
+}
+
 // TestRenderProfileEmptyExtensions tests rendering with no extensions and no
 // subject attributes.
 func TestRenderProfileEmptyExtensions(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Empty Ext Test", Version: 3},
+		Profile: section7.Meta{Name: "Empty Ext Test"},
 		Requirements: section7.Requirements{
+			Version:  3,
 			Validity: section7.Validity{MaximumDays: 398},
 		},
 	}

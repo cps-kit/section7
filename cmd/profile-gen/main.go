@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/cps-kit/section7"
@@ -70,6 +69,145 @@ func criticalSentence(label string, required section7.Presence, critical section
 	default:
 		return fmt.Sprintf("The %s extension MAY be present. When present, it %s.\n\n", label, criticality)
 	}
+}
+
+// renderAttributeTable renders the attributes of a distinguished name as a
+// table, followed by the prose list of those that must be present. The length
+// columns are only produced when at least one attribute constrains its length.
+func renderAttributeTable(attrs map[string]section7.Field) string {
+	var sb strings.Builder
+
+	hasLength := false
+	for _, f := range attrs {
+		if f.Length.Min != nil || f.Length.Max != nil {
+			hasLength = true
+			break
+		}
+	}
+
+	names := make([]string, 0, len(attrs))
+	for name := range attrs {
+		names = append(names, name)
+	}
+	// Listed in the order a conforming certificate encodes them.
+	section7.SortAttributeKeys(names)
+
+	if hasLength {
+		sb.WriteString("| Attribute | Short Name | OID | Required | Min Length | Max Length |\n")
+		sb.WriteString("| --------- | ---------- | --- | -------- | ---------- | ---------- |\n")
+		for _, name := range names {
+			f := attrs[name]
+			meta, _ := section7.SubjectAttributeMetaFor(name)
+			minLen := "-"
+			maxLen := "-"
+			if f.Length.Min != nil {
+				minLen = fmt.Sprintf("%d", *f.Length.Min)
+			}
+			if f.Length.Max != nil {
+				maxLen = fmt.Sprintf("%d", *f.Length.Max)
+			}
+			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s |\n",
+				section7.SubjectAttributeLabel(name), dash(meta.ShortName), dash(meta.OID),
+				boolStr(f.Required), minLen, maxLen))
+		}
+	} else {
+		sb.WriteString("| Attribute | Short Name | OID | Required |\n")
+		sb.WriteString("| --------- | ---------- | --- | -------- |\n")
+		for _, name := range names {
+			meta, _ := section7.SubjectAttributeMetaFor(name)
+			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n",
+				section7.SubjectAttributeLabel(name), dash(meta.ShortName), dash(meta.OID),
+				boolStr(attrs[name].Required)))
+		}
+	}
+	sb.WriteString("\n")
+
+	// Spell out the required attributes in prose.
+	var required []string
+	for _, name := range names {
+		if attrs[name].Required {
+			required = append(required, "`"+section7.SubjectAttributeLabel(name)+"`")
+		}
+	}
+	if len(required) > 0 {
+		sb.WriteString(fmt.Sprintf("The following attributes MUST be present: %s.\n\n",
+			strings.Join(required, ", ")))
+	}
+
+	return sb.String()
+}
+
+// renderSignatureAlgorithm describes the algorithms a certificate under the
+// profile may be signed with.
+func renderSignatureAlgorithm(req section7.SignatureAlgorithm) string {
+	if len(req.Allowed) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("### Signature Algorithm\n\n")
+	sb.WriteString("| Algorithm | OID |\n")
+	sb.WriteString("| --------- | --- |\n")
+	for _, name := range req.Allowed {
+		meta, known := section7.SignatureAlgorithmInfo[name]
+		display := meta.DisplayName
+		oid := meta.OID
+		if !known {
+			display, oid = name, name
+		}
+		sb.WriteString(fmt.Sprintf("| %s | %s |\n", display, oid))
+	}
+	sb.WriteString("\nThe `signatureAlgorithm` field and the `signature` field of the TBSCertificate " +
+		"MUST contain the same value. No other algorithms are permitted; a certificate signed with " +
+		"any algorithm not listed above does not conform to this profile.\n\n")
+	return sb.String()
+}
+
+// renderPublicKey describes the subject public keys the profile permits.
+func renderPublicKey(req section7.PublicKey) string {
+	if len(req.Algorithms) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("### Subject Public Key\n\n")
+	sb.WriteString("| Algorithm | OID | Permitted Key Sizes | Permitted Curves |\n")
+	sb.WriteString("| --------- | --- | ------------------- | ---------------- |\n")
+	for _, alg := range req.Algorithms {
+		meta, known := section7.KeyAlgorithmInfo[alg.Name]
+		display := meta.DisplayName
+		oid := meta.OID
+		if !known {
+			display, oid = alg.Name, alg.Name
+		}
+
+		sizes := make([]string, 0, len(alg.KeySizes))
+		for _, size := range alg.KeySizes {
+			sizes = append(sizes, fmt.Sprintf("%d", size))
+		}
+		sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n",
+			display, oid, dash(strings.Join(sizes, ", ")), dash(strings.Join(alg.Curves, ", "))))
+	}
+	sb.WriteString("\nNo other public key algorithms, key sizes or curves are permitted; " +
+		"a certificate whose subject public key is not described above does not conform to this profile.\n\n")
+	return sb.String()
+}
+
+// renderIssuer describes the Issuer Distinguished Name.
+func renderIssuer(issuer section7.DistinguishedName) string {
+	if len(issuer.Attributes) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("### Issuer DN Requirements\n\n")
+	sb.WriteString("The issuer field MUST contain the Subject Distinguished Name of the issuing CA " +
+		"certificate, byte for byte. Every attribute it contains MUST be one of the attributes listed " +
+		"below and MUST conform to the requirements stated for it.\n\n")
+	sb.WriteString(renderAttributeTable(issuer.Attributes))
+	sb.WriteString("No other attributes are permitted in the Issuer Distinguished Name; " +
+		"a certificate containing any attribute not listed above does not conform to this profile.\n\n")
+	return sb.String()
 }
 
 // renderExtension renders a single extension as its own detailed subsection.
@@ -397,7 +535,7 @@ func backtickAll(values []string) []string {
 func renderProfile(p section7.Profile, raw map[string]interface{}) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("## Certificate Profile: %s (X.509v%d)\n\n", p.Profile.Name, p.Profile.Version))
+	sb.WriteString(fmt.Sprintf("## Certificate Profile: %s (X.509v%d)\n\n", p.Profile.Name, p.Requirements.Version))
 	sb.WriteString("This profile applies only to Subscriber certificates; CA certificates are exempt from these requirements.\n\n")
 
 	// Recognition
@@ -407,11 +545,8 @@ func renderProfile(p section7.Profile, raw map[string]interface{}) string {
 			oid))
 	}
 
-	// Validity
-	sb.WriteString("### Validity\n\n")
-	sb.WriteString("| Field | Value |\n")
-	sb.WriteString("| ----- | ----- |\n")
-	sb.WriteString(fmt.Sprintf("| Maximum Validity (days) | %d |\n\n", p.Requirements.Validity.MaximumDays))
+	// The sections below follow the field order of the TBSCertificate, so that
+	// the document can be read alongside a certificate from top to bottom.
 
 	// Serial number
 	if sn := p.Requirements.SerialNumber; sn.Declared {
@@ -427,6 +562,17 @@ func renderProfile(p section7.Profile, raw map[string]interface{}) string {
 			sb.WriteString("\n\n")
 		}
 	}
+
+	sb.WriteString(renderSignatureAlgorithm(p.Requirements.SignatureAlgorithm))
+
+	// Issuer
+	sb.WriteString(renderIssuer(p.Requirements.Issuer))
+
+	// Validity
+	sb.WriteString("### Validity\n\n")
+	sb.WriteString("| Field | Value |\n")
+	sb.WriteString("| ----- | ----- |\n")
+	sb.WriteString(fmt.Sprintf("| Maximum Validity (days) | %d |\n\n", p.Requirements.Validity.MaximumDays))
 
 	// Subject
 	subject := p.Requirements.Subject
@@ -457,68 +603,13 @@ func renderProfile(p section7.Profile, raw map[string]interface{}) string {
 	}
 
 	if len(subject.Attributes) > 0 {
-		hasLength := false
-		for _, f := range subject.Attributes {
-			if f.Length.Min != nil || f.Length.Max != nil {
-				hasLength = true
-				break
-			}
-		}
-
-		subjNames := make([]string, 0, len(subject.Attributes))
-		for name := range subject.Attributes {
-			subjNames = append(subjNames, name)
-		}
-		// Sort by the rendered X.520 name so the table reads alphabetically.
-		sort.Slice(subjNames, func(i, j int) bool {
-			return section7.SubjectAttributeLabel(subjNames[i]) < section7.SubjectAttributeLabel(subjNames[j])
-		})
-
-		if hasLength {
-			sb.WriteString("| Attribute | Short Name | OID | Required | Min Length | Max Length |\n")
-			sb.WriteString("| --------- | ---------- | --- | -------- | ---------- | ---------- |\n")
-			for _, name := range subjNames {
-				f := subject.Attributes[name]
-				meta, _ := section7.SubjectAttributeMetaFor(name)
-				minLen := "-"
-				maxLen := "-"
-				if f.Length.Min != nil {
-					minLen = fmt.Sprintf("%d", *f.Length.Min)
-				}
-				if f.Length.Max != nil {
-					maxLen = fmt.Sprintf("%d", *f.Length.Max)
-				}
-				sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s |\n",
-					section7.SubjectAttributeLabel(name), dash(meta.ShortName), dash(meta.OID),
-					boolStr(f.Required), minLen, maxLen))
-			}
-		} else {
-			sb.WriteString("| Attribute | Short Name | OID | Required |\n")
-			sb.WriteString("| --------- | ---------- | --- | -------- |\n")
-			for _, name := range subjNames {
-				meta, _ := section7.SubjectAttributeMetaFor(name)
-				sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n",
-					section7.SubjectAttributeLabel(name), dash(meta.ShortName), dash(meta.OID),
-					boolStr(subject.Attributes[name].Required)))
-			}
-		}
-		sb.WriteString("\n")
-
-		// Spell out the required attributes in prose.
-		var required []string
-		for _, name := range subjNames {
-			if subject.Attributes[name].Required {
-				required = append(required, "`"+section7.SubjectAttributeLabel(name)+"`")
-			}
-		}
-		if len(required) > 0 {
-			sb.WriteString(fmt.Sprintf("The following attributes MUST be present: %s.\n\n",
-				strings.Join(required, ", ")))
-		}
+		sb.WriteString(renderAttributeTable(subject.Attributes))
 
 		sb.WriteString("No other attributes are permitted in the Subject Distinguished Name; " +
 			"a certificate containing any attribute not listed above does not conform to this profile.\n\n")
 	}
+
+	sb.WriteString(renderPublicKey(p.Requirements.PublicKey))
 
 	// Extensions
 	if len(p.Requirements.Extensions) > 0 {
@@ -539,11 +630,7 @@ func renderProfile(p section7.Profile, raw map[string]interface{}) string {
 				"under consideration.\n\n")
 		}
 
-		names := make([]string, 0, len(p.Requirements.Extensions))
-		for name := range p.Requirements.Extensions {
-			names = append(names, name)
-		}
-		sort.Strings(names)
+		names := section7.ExtensionNames(p.Requirements.Extensions)
 
 		// Summary table for quick reference.
 		sb.WriteString("| Extension | OID | Required | Critical |\n")
