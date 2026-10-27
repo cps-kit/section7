@@ -151,7 +151,7 @@ func createEmptySubjectCert(t *testing.T, extra ...pkix.Extension) *x509.Certifi
 func TestLintValidCertificate(t *testing.T) {
 	ca := false
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			SignatureAlgorithm: section7.SignatureAlgorithm{
 				Allowed: []string{"sha256WithRSAEncryption"},
@@ -207,7 +207,7 @@ func TestLintValidCertificate(t *testing.T) {
 // TestLintValidityViolation tests detection of validity period violation.
 func TestLintValidityViolation(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Validity: section7.Validity{MaximumDays: 10}, // Very short
 		},
@@ -233,7 +233,7 @@ func TestLintValidityViolation(t *testing.T) {
 // TestLintMissingRequiredSubjectField tests detection of missing required subject field.
 func TestLintMissingRequiredSubjectField(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Subject: section7.DistinguishedName{
 				Attributes: map[string]section7.Field{
@@ -264,7 +264,7 @@ func TestLintMissingRequiredSubjectField(t *testing.T) {
 func TestLintSubjectFieldLength(t *testing.T) {
 	maxLen := 5
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Subject: section7.DistinguishedName{
 				Attributes: map[string]section7.Field{
@@ -298,7 +298,7 @@ func TestLintSubjectFieldLength(t *testing.T) {
 func TestLintSubjectLengthCountsCharactersNotBytes(t *testing.T) {
 	maxLen := 64
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Subject: section7.DistinguishedName{
 				Attributes: map[string]section7.Field{
@@ -331,7 +331,7 @@ func TestLintSubjectLengthCountsCharactersNotBytes(t *testing.T) {
 func TestLintSubjectLengthTooLongInCharacters(t *testing.T) {
 	maxLen := 5
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Subject: section7.DistinguishedName{
 				Attributes: map[string]section7.Field{
@@ -363,7 +363,7 @@ func TestLintSubjectLengthTooLongInCharacters(t *testing.T) {
 func TestLintSubjectMinLengthCountsCharacters(t *testing.T) {
 	minLen := 3
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Subject: section7.DistinguishedName{
 				Attributes: map[string]section7.Field{
@@ -415,7 +415,7 @@ func sanExtension(t *testing.T, critical bool) pkix.Extension {
 // attribute makes an empty subject non-conforming.
 func TestLintEmptySubjectRejectedWhenAttributeRequired(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Subject: section7.DistinguishedName{
 				Attributes: map[string]section7.Field{
@@ -444,7 +444,7 @@ func TestLintEmptySubjectRejectedWhenAttributeRequired(t *testing.T) {
 // then conforms when no attribute is required.
 func TestLintEmptySubjectRequiresCriticalSAN(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Subject: section7.DistinguishedName{
 				Attributes: map[string]section7.Field{
@@ -494,7 +494,7 @@ func TestLintEmptySubjectRequiresCriticalSAN(t *testing.T) {
 func TestLintCAViolation(t *testing.T) {
 	ca := false
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Extensions: map[string]section7.Extension{
 				"basic_constraints": {Critical: section7.CriticalityRequired, CA: &ca},
@@ -522,7 +522,7 @@ func TestLintCAViolation(t *testing.T) {
 // TestLintExtendedKeyUsageViolation tests detection of missing extended key usage.
 func TestLintExtendedKeyUsageViolation(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Extensions: map[string]section7.Extension{
 				"extended_key_usage": {
@@ -554,7 +554,7 @@ func TestLintExtendedKeyUsageViolation(t *testing.T) {
 // TestLintKeyUsageViolation tests detection of missing key usage.
 func TestLintKeyUsageViolation(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Extensions: map[string]section7.Extension{
 				"key_usage": {
@@ -589,7 +589,7 @@ func TestLintKeyUsageViolation(t *testing.T) {
 // the certificate but absent from the profile is reported.
 func TestLintRejectsUnlistedSubjectAttribute(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Subject: section7.DistinguishedName{
 				Attributes: map[string]section7.Field{
@@ -625,7 +625,7 @@ func TestLintRejectsUnlistedSubjectAttribute(t *testing.T) {
 // present attribute is listed.
 func TestLintAllowsListedSubjectAttributes(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Subject: section7.DistinguishedName{
 				Attributes: map[string]section7.Field{
@@ -651,7 +651,7 @@ func TestLintAllowsListedSubjectAttributes(t *testing.T) {
 // with no subject block permits no subject attributes.
 func TestLintProfileWithoutSubjectPermitsNoAttributes(t *testing.T) {
 	p := section7.Profile{
-		Profile:      section7.Meta{Name: "Test Profile", Version: 3},
+		Profile:      section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{},
 	}
 
@@ -673,7 +673,7 @@ func TestLintProfileWithoutSubjectPermitsNoAttributes(t *testing.T) {
 func TestLintRejectsUnlistedExtension(t *testing.T) {
 	ca := false
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Extensions: map[string]section7.Extension{
 				"basic_constraints": {Critical: section7.CriticalityRequired, CA: &ca},
@@ -705,7 +705,7 @@ func TestLintRejectsUnlistedExtension(t *testing.T) {
 func TestLintAllowsListedExtensions(t *testing.T) {
 	ca := false
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Extensions: map[string]section7.Extension{
 				"basic_constraints":  {Critical: section7.CriticalityRequired, CA: &ca},
@@ -729,7 +729,7 @@ func TestLintAllowsListedExtensions(t *testing.T) {
 // extensions block permits no extensions, rather than permitting every one.
 func TestLintProfileWithoutExtensionsPermitsNone(t *testing.T) {
 	p := section7.Profile{
-		Profile:      section7.Meta{Name: "Test Profile", Version: 3},
+		Profile:      section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{},
 	}
 
@@ -750,7 +750,7 @@ func TestLintProfileWithoutExtensionsPermitsNone(t *testing.T) {
 // TestLintExtensionAcceptedByOID verifies an extension may be listed by raw OID.
 func TestLintExtensionAcceptedByOID(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Extensions: map[string]section7.Extension{
 				"2.5.29.19": {Critical: section7.CriticalityRequired}, // basic constraints, by OID
@@ -816,7 +816,7 @@ func TestLintVersionMismatch(t *testing.T) {
 // profile's list is reported.
 func TestLintSignatureAlgorithmNotListed(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			SignatureAlgorithm: section7.SignatureAlgorithm{Allowed: []string{"ecdsa-with-SHA256"}},
 		},
@@ -833,7 +833,7 @@ func TestLintSignatureAlgorithmNotListed(t *testing.T) {
 // TestLintSignatureAlgorithmListed verifies the permitted algorithm passes.
 func TestLintSignatureAlgorithmListed(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			SignatureAlgorithm: section7.SignatureAlgorithm{Allowed: []string{"sha256WithRSAEncryption"}},
 		},
@@ -878,7 +878,7 @@ func TestSignatureAlgorithmIdentifiersMustMatch(t *testing.T) {
 // profile's list is reported.
 func TestLintPublicKeyAlgorithmNotListed(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			PublicKey: section7.PublicKey{
 				Algorithms: []section7.KeyAlgorithm{{Name: "id-ecPublicKey", Curves: []string{"P-256"}}},
@@ -897,7 +897,7 @@ func TestLintPublicKeyAlgorithmNotListed(t *testing.T) {
 // list is reported.
 func TestLintPublicKeySizeNotListed(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			PublicKey: section7.PublicKey{
 				Algorithms: []section7.KeyAlgorithm{{Name: "rsaEncryption", KeySizes: []int{4096}}},
@@ -917,7 +917,7 @@ func TestLintPublicKeySizeNotListed(t *testing.T) {
 // alias spelling.
 func TestLintPublicKeyCurve(t *testing.T) {
 	permitted := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			PublicKey: section7.PublicKey{
 				Algorithms: []section7.KeyAlgorithm{{Name: "id-ecPublicKey", Curves: []string{"secp256r1"}}},
@@ -925,7 +925,7 @@ func TestLintPublicKeyCurve(t *testing.T) {
 		},
 	}
 	forbidden := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			PublicKey: section7.PublicKey{
 				Algorithms: []section7.KeyAlgorithm{{Name: "id-ecPublicKey", Curves: []string{"P-384"}}},
@@ -947,7 +947,7 @@ func TestLintPublicKeyCurve(t *testing.T) {
 // exhaustive attribute list as the subject.
 func TestLintIssuerAttributesChecked(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Issuer: section7.DistinguishedName{
 				Attributes: map[string]section7.Field{
@@ -982,7 +982,7 @@ func TestLintIssuerAttributesChecked(t *testing.T) {
 // TestLintEmptyIssuerRejected verifies the RFC 5280 rule that the issuer is
 // never empty, whatever the profile says.
 func TestLintEmptyIssuerRejected(t *testing.T) {
-	p := section7.Profile{Profile: section7.Meta{Name: "Test Profile", Version: 3}}
+	p := section7.Profile{Profile: section7.Meta{Name: "Test Profile"}}
 
 	// Self-signed with an empty subject, so the issuer is empty too.
 	if !hasFinding(lint(createEmptySubjectCert(t), p), "ISSUER-000", Error) {
@@ -999,7 +999,7 @@ func TestLintEmptyIssuerRejected(t *testing.T) {
 // profile that names neither describes no certificate at all.
 func TestLintProfileWithoutAlgorithmsPermitsNone(t *testing.T) {
 	p := section7.Profile{
-		Profile:      section7.Meta{Name: "Test Profile", Version: 3},
+		Profile:      section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{},
 	}
 
@@ -1018,7 +1018,7 @@ func TestLintProfileWithoutAlgorithmsPermitsNone(t *testing.T) {
 
 func TestLintSerialNumberRequiredOK(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			SerialNumber: section7.SerialNumber{Required: true, Declared: true},
 		},
@@ -1033,7 +1033,7 @@ func TestLintSerialNumberRequiredOK(t *testing.T) {
 
 func TestLintSerialNumberZeroRejected(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			SerialNumber: section7.SerialNumber{Required: true, Declared: true},
 		},
@@ -1054,7 +1054,7 @@ func TestLintSerialNumberZeroRejected(t *testing.T) {
 // Identifier as non-critical, so a profile demanding critical=true must fail.
 func TestLintCriticalityCheckedForAllExtensions(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Extensions: map[string]section7.Extension{
 				"subject_key_identifier": {Critical: section7.CriticalityRequired},
@@ -1079,7 +1079,7 @@ func TestLintCriticalityCheckedForAllExtensions(t *testing.T) {
 // TestLintCriticalityAcceptedForAllExtensions is the matching positive case.
 func TestLintCriticalityAcceptedForAllExtensions(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Extensions: map[string]section7.Extension{
 				"subject_key_identifier": {Critical: section7.CriticalityForbidden},
@@ -1100,7 +1100,7 @@ func TestLintCriticalityAcceptedForAllExtensions(t *testing.T) {
 // when the extension is listed by raw OID.
 func TestLintCriticalityCheckedForOIDKeyedExtension(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Extensions: map[string]section7.Extension{
 				"2.5.29.14": {Critical: section7.CriticalityRequired}, // subject key identifier, by OID
@@ -1125,7 +1125,7 @@ func TestLintCriticalityCheckedForOIDKeyedExtension(t *testing.T) {
 // extension is reported rather than silently skipped.
 func TestLintAbsentListedExtensionReported(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Extensions: map[string]section7.Extension{
 				"name_constraints": {Critical: section7.CriticalityRequired}, // not present in the test cert
@@ -1154,7 +1154,7 @@ func TestLintAbsentListedExtensionReported(t *testing.T) {
 // TestLintRequiredExtensionMissing verifies required: true is enforced.
 func TestLintRequiredExtensionMissing(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Extensions: map[string]section7.Extension{
 				// Absent from the test certificate.
@@ -1180,7 +1180,7 @@ func TestLintRequiredExtensionMissing(t *testing.T) {
 // TestLintOptionalExtensionMissing verifies required: false is not an error.
 func TestLintOptionalExtensionMissing(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Extensions: map[string]section7.Extension{
 				"subject_key_identifier": {Required: section7.PresenceOptional},
@@ -1204,7 +1204,7 @@ func TestLintOptionalExtensionMissing(t *testing.T) {
 // is in fact present.
 func TestLintRequiredExtensionPresent(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Extensions: map[string]section7.Extension{
 				"subject_key_identifier": {Required: section7.PresenceRequired, Critical: section7.CriticalityForbidden},
@@ -1229,7 +1229,7 @@ func TestLintRequiredExtensionPresent(t *testing.T) {
 func aiaProfile(descriptions ...section7.AccessDescription) section7.Profile {
 	ca := false
 	return section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			SignatureAlgorithm: fixtureSignature(),
 			PublicKey:          fixtureKey(),
@@ -1385,7 +1385,7 @@ func TestLintFindingOrderIsStable(t *testing.T) {
 // Section 7.1.4.2 of the Baseline Requirements.
 func TestSubjectAttributesFollowEncodingOrder(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Subject: section7.DistinguishedName{
 				Attributes: map[string]section7.Field{
@@ -1429,7 +1429,7 @@ func TestSubjectAttributesFollowEncodingOrder(t *testing.T) {
 // accepts a non-critical extension.
 func TestLintCriticalityOptionalAcceptsNonCritical(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Extensions: map[string]section7.Extension{
 				"subject_key_identifier": {Critical: section7.CriticalityOptional},
@@ -1454,7 +1454,7 @@ func TestLintCriticalityOptionalAcceptsNonCritical(t *testing.T) {
 // accepts a critical extension too.
 func TestLintCriticalityOptionalAcceptsCritical(t *testing.T) {
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Extensions: map[string]section7.Extension{
 				// Go emits Basic Constraints as critical.
@@ -1595,7 +1595,7 @@ func TestLintPolicyArcRespectsComponentBoundary(t *testing.T) {
 func ctProfile() section7.Profile {
 	ca := false
 	return section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			SignatureAlgorithm: fixtureSignature(),
 			PublicKey:          fixtureKey(),
@@ -1784,7 +1784,7 @@ func TestLintPoisonMakesItAPrecertificate(t *testing.T) {
 func TestLintPrecertificateWarnsWhenProfileSilent(t *testing.T) {
 	ca := false
 	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Extensions: map[string]section7.Extension{
 				"basic_constraints": {Required: section7.PresenceRequired, Critical: section7.CriticalityRequired, CA: &ca},
@@ -1811,7 +1811,7 @@ func TestLintPrecertificateWarnsWhenProfileSilent(t *testing.T) {
 func sanProfile(required, optional []string) section7.Profile {
 	ca := false
 	return section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			SignatureAlgorithm: fixtureSignature(),
 			PublicKey:          fixtureKey(),
@@ -1920,7 +1920,7 @@ func TestLintGeneralNameAliasesResolve(t *testing.T) {
 func crldpProfile(dps ...section7.DistributionPoint) section7.Profile {
 	ca := false
 	return section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile", Version: 3},
+		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			SignatureAlgorithm: fixtureSignature(),
 			PublicKey:          fixtureKey(),
@@ -2092,7 +2092,7 @@ func TestLintCRLDistributionPointDeclaredReasons(t *testing.T) {
 // This is tested by calling ValidateProfile directly, not by running main.
 func TestProfileValidationError(t *testing.T) {
 	invalidProfile := &section7.Profile{
-		Profile: section7.Meta{Name: "Invalid Profile", Version: 3},
+		Profile: section7.Meta{Name: "Invalid Profile"},
 		Requirements: section7.Requirements{
 			Extensions: map[string]section7.Extension{
 				"made_up_extension": {Critical: section7.CriticalityForbidden},

@@ -136,7 +136,7 @@ func TestValidateProfileValid(t *testing.T) {
 // TestValidateProfileInvalidSubjectField tests that unknown subject attributes are detected.
 func TestValidateProfileInvalidSubjectField(t *testing.T) {
 	invalidProfile := &Profile{
-		Profile: Meta{Name: "Bad Profile", Version: 3},
+		Profile: Meta{Name: "Bad Profile"},
 		Requirements: Requirements{
 			Validity: Validity{MaximumDays: 398},
 			Subject: DistinguishedName{
@@ -168,7 +168,7 @@ func TestValidateProfileInvalidSubjectField(t *testing.T) {
 // TestValidateProfileInvalidExtension tests that unknown extensions are detected.
 func TestValidateProfileInvalidExtension(t *testing.T) {
 	invalidProfile := &Profile{
-		Profile: Meta{Name: "Bad Profile", Version: 3},
+		Profile: Meta{Name: "Bad Profile"},
 		Requirements: Requirements{
 			Validity: Validity{MaximumDays: 398},
 			Extensions: map[string]Extension{
@@ -226,7 +226,7 @@ func TestValidateProfileMultipleErrors(t *testing.T) {
 // is left out cannot be read strictly; it would simply go unchecked.
 func TestValidateProfileRequiresValidity(t *testing.T) {
 	emptyProfile := &Profile{
-		Profile: Meta{Name: "Empty Profile", Version: 3},
+		Profile: Meta{Name: "Empty Profile"},
 		Requirements: Requirements{
 			Validity: Validity{MaximumDays: 0},
 		},
@@ -386,7 +386,6 @@ func TestGeneralNameUnknownRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: SAN Bad Value
-  version: 3
 requirements:
   extensions:
     subject_alt_name:
@@ -443,7 +442,6 @@ func TestGeneralNameValuesRejectedElsewhere(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: SAN Wrong Place
-  version: 3
 requirements:
   extensions:
     basic_constraints:
@@ -547,7 +545,6 @@ func TestPresenceInvalidValue(t *testing.T) {
 	content := `
 profile:
   name: Bad Presence
-  version: 3
 requirements:
   extensions:
     subject_alt_name:
@@ -572,7 +569,6 @@ func TestTransparencyPoisonMustBePrecertificateOnly(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Poison Always
-  version: 3
 requirements:
   extensions:
     precertificate_poison:
@@ -597,7 +593,6 @@ func TestTransparencyPoisonMustBeCritical(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Poison Not Critical
-  version: 3
 requirements:
   extensions:
     precertificate_poison:
@@ -623,7 +618,6 @@ func TestTransparencySCTsCannotBeUnconditional(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: SCTs Always
-  version: 3
 requirements:
   extensions:
     signed_certificate_timestamps:
@@ -651,7 +645,6 @@ func TestTransparencyFinalOnlyNeedsPoison(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: SCTs Final Only
-  version: 3
 requirements:
   extensions:
     signed_certificate_timestamps:
@@ -770,7 +763,6 @@ func TestOptionalArcsInvalidRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Bad Arc
-  version: 3
 requirements:
   extensions:
     certificate_policies:
@@ -797,7 +789,6 @@ func TestOptionalArcsRejectedOnNonOIDExtension(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Arc Wrong Place
-  version: 3
 requirements:
   extensions:
     key_usage:
@@ -997,7 +988,6 @@ func TestCriticalityInvalidValue(t *testing.T) {
 	content := `
 profile:
   name: Bad Criticality
-  version: 3
 requirements:
   extensions:
     subject_alt_name:
@@ -1058,7 +1048,6 @@ func TestAccessDescriptionUnknownMethodRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: AIA Bad Method
-  version: 3
 requirements:
   extensions:
     authority_information_access:
@@ -1086,7 +1075,6 @@ func TestAccessDescriptionDuplicateRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: AIA Duplicate
-  version: 3
 requirements:
   extensions:
     authority_information_access:
@@ -1116,7 +1104,6 @@ func TestAccessDescriptionsRejectedOnOtherExtensions(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: AIA Wrong Place
-  version: 3
 requirements:
   extensions:
     key_usage:
@@ -1144,7 +1131,6 @@ func TestAccessDescriptionUnknownKeyRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: AIA Bad Key
-  version: 3
 requirements:
   extensions:
     authority_information_access:
@@ -1226,7 +1212,6 @@ func TestExtensionLegacyRequiredListRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Legacy Required
-  version: 3
 requirements:
   extensions:
     extended_key_usage:
@@ -1252,7 +1237,6 @@ func TestExtensionLegacyOptionalRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Legacy Optional
-  version: 3
 requirements:
   extensions:
     extended_key_usage:
@@ -1279,7 +1263,6 @@ func TestExtensionValuesRejectedOnUnsupportedExtension(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Values Where Unsupported
-  version: 3
 requirements:
   extensions:
     basic_constraints:
@@ -1353,7 +1336,6 @@ func TestSubjectFlatLayoutRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Flat Subject
-  version: 3
 requirements:
   subject:
     organization_name:
@@ -1382,7 +1364,6 @@ func TestSubjectUnknownKeyRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Bad Subject Key
-  version: 3
 requirements:
   subject:
     bogus: 1
@@ -1410,7 +1391,6 @@ func TestSubjectRequiredKeyRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Retired Subject Key
-  version: 3
 requirements:
   subject:
     required: true
@@ -1438,7 +1418,6 @@ func TestSubjectUnknownAttributeKeyRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Bad Attribute Key
-  version: 3
 requirements:
   subject:
     attributes:
@@ -1509,7 +1488,6 @@ func TestUnknownSignatureAlgorithmRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Bad Algorithm
-  version: 3
 requirements:
   signature_algorithm:
     allowed:
@@ -1534,7 +1512,6 @@ func TestPublicKeyParameterMismatchRejected(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Wrong Parameters
-  version: 3
 requirements:
   public_key:
     algorithms:
@@ -1564,7 +1541,6 @@ func TestIssuerAttributesValidated(t *testing.T) {
 	loaded := loadYAML(t, `
 profile:
   name: Bad Issuer
-  version: 3
 requirements:
   issuer:
     attributes:
@@ -1692,7 +1668,6 @@ requirements:
 extends: _base.yaml
 profile:
   name: Strict Child
-  version: 3
 requirements:
   extensions:
     extended_key_usage:
@@ -1737,7 +1712,6 @@ extends:
   - _second.yaml
 profile:
   name: Mixed
-  version: 3
 `,
 	})
 
