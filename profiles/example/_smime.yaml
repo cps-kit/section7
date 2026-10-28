@@ -1,0 +1,30 @@
+# Requirements shared by every S/MIME profile.
+
+extends: _common.yaml
+
+requirements:
+  validity:
+    maximum_days: 825
+
+  extensions:
+    subject_alt_name:
+      required: true
+      critical: optional
+      optional_values:
+        - rfc822_name
+
+    extended_key_usage:
+      required_values:
+        - emailProtection
+      optional_values:
+        - clientAuth
+
+    key_usage:
+      optional_values:
+        - keyEncipherment
+        - keyAgreement
+
+    certificate_template:
+      required: false
+      critical: false
+      extension_oid: 1.3.6.1.4.1.311.21.7

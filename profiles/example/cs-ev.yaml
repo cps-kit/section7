@@ -1,0 +1,15 @@
+extends:
+  - _code-signing.yaml
+  - _subject-organization.yaml
+  - _subject-ev.yaml
+
+profile:
+  name:  EV Code Signing Certificate
+  recognized_by:
+    policy_oid: 2.23.140.1.3
+
+requirements:
+  extensions:
+    certificate_policies:
+      required_values:
+        - 2.23.140.1.3

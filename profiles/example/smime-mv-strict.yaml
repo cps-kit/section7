@@ -1,0 +1,31 @@
+extends: _smime.yaml
+
+profile:
+  name:  S/MIME Mailbox Validated - Strict
+  recognized_by:
+    policy_oid: 2.23.140.1.5.1.3
+
+requirements:
+  subject:
+    attributes:
+      common_name:
+        required: false
+        length:
+          min: 1
+          max: 64
+
+      email_address:
+        required: false
+        length:
+          min: 1
+          max: 128
+
+  extensions:
+    certificate_policies:
+      required_values:
+        - 2.23.140.1.5.1.3
+
+    # Strict permits no key purpose beyond emailProtection, so the inherited
+    # list is replaced rather than extended.
+    extended_key_usage:
+      optional_values: []

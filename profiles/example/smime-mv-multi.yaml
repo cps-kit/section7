@@ -1,0 +1,26 @@
+extends: _smime.yaml
+
+profile:
+  name:  S/MIME Mailbox Validated - Multipurpose
+  recognized_by:
+    policy_oid: 2.23.140.1.5.1.2
+
+requirements:
+  subject:
+    attributes:
+      common_name:
+        required: false
+        length:
+          min: 1
+          max: 64
+
+      email_address:
+        required: false
+        length:
+          min: 1
+          max: 128
+
+  extensions:
+    certificate_policies:
+      required_values:
+        - 2.23.140.1.5.1.2
