@@ -110,8 +110,10 @@ func TestValidateProfileValid(t *testing.T) {
 	validProfile := &Profile{
 		Profile: Meta{Name: "Test Profile"},
 		Requirements: Requirements{
-			Version:  3,
-			Validity: Validity{MaximumDays: 398},
+			Version:            3,
+			SignatureAlgorithm: SignatureAlgorithm{Allowed: []string{"sha256WithRSAEncryption"}},
+			Validity:           Validity{MaximumDays: 398},
+			PublicKey:          PublicKey{Algorithms: []KeyAlgorithm{{Name: "rsaEncryption"}}},
 			Subject: DistinguishedName{
 				Attributes: map[string]Field{
 					"common_name":       {Required: true},
@@ -200,8 +202,10 @@ func TestValidateProfileMultipleErrors(t *testing.T) {
 	invalidProfile := &Profile{
 		Profile: Meta{Name: "Bad Profile"},
 		Requirements: Requirements{
-			Version:  3,
-			Validity: Validity{MaximumDays: 398},
+			Version:            3,
+			SignatureAlgorithm: SignatureAlgorithm{Allowed: []string{"sha256WithRSAEncryption"}},
+			Validity:           Validity{MaximumDays: 398},
+			PublicKey:          PublicKey{Algorithms: []KeyAlgorithm{{Name: "rsaEncryption"}}},
 			Subject: DistinguishedName{
 				Attributes: map[string]Field{
 					"phone_number":  {Required: false}, // UNKNOWN 1
@@ -286,10 +290,35 @@ func TestVersionSpellings(t *testing.T) {
 // stated, as the validity period must.
 func TestValidateProfileRequiresVersion(t *testing.T) {
 	errs := ValidateProfile(&Profile{
-		Requirements: Requirements{Validity: Validity{MaximumDays: 398}},
+		Requirements: Requirements{
+			Validity:           Validity{MaximumDays: 398},
+			SignatureAlgorithm: SignatureAlgorithm{Allowed: []string{"sha256WithRSAEncryption"}},
+			PublicKey:          PublicKey{Algorithms: []KeyAlgorithm{{Name: "rsaEncryption"}}},
+		},
 	})
 	if len(errs) != 1 || !strings.Contains(errs[0], "requirements.version is missing") {
 		t.Errorf("an unstated certificate version should be reported, got: %v", errs)
+	}
+}
+
+// TestValidateProfileRequiresAlgorithms verifies a profile must list the
+// signature and public key algorithms it permits, since an empty list would
+// describe no certificate at all.
+func TestValidateProfileRequiresAlgorithms(t *testing.T) {
+	errs := ValidateProfile(&Profile{
+		Requirements: Requirements{Version: 3, Validity: Validity{MaximumDays: 398}},
+	})
+	joined := strings.Join(errs, "\n")
+	for _, want := range []string{
+		"requirements.signature_algorithm.allowed is missing",
+		"requirements.public_key.algorithms is missing",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("errors should include %q, got: %v", want, errs)
+		}
+	}
+	if len(errs) != 2 {
+		t.Errorf("only the two missing lists should be reported, got: %v", errs)
 	}
 }
 
@@ -317,6 +346,10 @@ profile:
   name: SAN Values
 requirements:
   version: v3
+  signature_algorithm:
+    allowed: [sha256WithRSAEncryption]
+  public_key:
+    algorithms: [{name: rsaEncryption}]
   validity:
     maximum_days: 398
   extensions:
@@ -347,6 +380,10 @@ profile:
   name: SAN Aliases
 requirements:
   version: v3
+  signature_algorithm:
+    allowed: [sha256WithRSAEncryption]
+  public_key:
+    algorithms: [{name: rsaEncryption}]
   validity:
     maximum_days: 398
   extensions:
@@ -471,6 +508,10 @@ profile:
   name: Presence
 requirements:
   version: v3
+  signature_algorithm:
+    allowed: [sha256WithRSAEncryption]
+  public_key:
+    algorithms: [{name: rsaEncryption}]
   validity:
     maximum_days: 398
   extensions:
@@ -737,6 +778,10 @@ profile:
     policy_oid: 2.23.140.1.2.1
 requirements:
   version: v3
+  signature_algorithm:
+    allowed: [sha256WithRSAEncryption]
+  public_key:
+    algorithms: [{name: rsaEncryption}]
   validity:
     maximum_days: 398
   extensions:
@@ -819,6 +864,10 @@ profile:
   name: Canonical Keys
 requirements:
   version: v3
+  signature_algorithm:
+    allowed: [sha256WithRSAEncryption]
+  public_key:
+    algorithms: [{name: rsaEncryption}]
   validity:
     maximum_days: 398
   subject:
@@ -847,6 +896,10 @@ profile:
   name: Aliases
 requirements:
   version: v3
+  signature_algorithm:
+    allowed: [sha256WithRSAEncryption]
+  public_key:
+    algorithms: [{name: rsaEncryption}]
   validity:
     maximum_days: 398
   subject:
@@ -920,6 +973,10 @@ profile:
   name: Criticality
 requirements:
   version: v3
+  signature_algorithm:
+    allowed: [sha256WithRSAEncryption]
+  public_key:
+    algorithms: [{name: rsaEncryption}]
   validity:
     maximum_days: 398
   extensions:
@@ -1013,6 +1070,10 @@ profile:
   name: AIA
 requirements:
   version: v3
+  signature_algorithm:
+    allowed: [sha256WithRSAEncryption]
+  public_key:
+    algorithms: [{name: rsaEncryption}]
   validity:
     maximum_days: 398
   extensions:
@@ -1161,6 +1222,10 @@ profile:
   name: Extension Shape
 requirements:
   version: v3
+  signature_algorithm:
+    allowed: [sha256WithRSAEncryption]
+  public_key:
+    algorithms: [{name: rsaEncryption}]
   validity:
     maximum_days: 398
   extensions:
@@ -1290,6 +1355,10 @@ profile:
   name: Nested Subject
 requirements:
   version: v3
+  signature_algorithm:
+    allowed: [sha256WithRSAEncryption]
+  public_key:
+    algorithms: [{name: rsaEncryption}]
   validity:
     maximum_days: 398
   subject:
@@ -1588,6 +1657,10 @@ func TestExtendsInheritsAndOverrides(t *testing.T) {
 		"_base.yaml": `
 requirements:
   version: v3
+  signature_algorithm:
+    allowed: [sha256WithRSAEncryption]
+  public_key:
+    algorithms: [{name: rsaEncryption}]
   validity:
     maximum_days: 398
   subject:
