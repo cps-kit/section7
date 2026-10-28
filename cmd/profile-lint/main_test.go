@@ -1344,6 +1344,44 @@ func TestLintAccessDescriptionsByOID(t *testing.T) {
 	}
 }
 
+// TestLintFindingsFollowCertificateOrder verifies findings are reported in the
+// field order of the TBSCertificate, so a report reads alongside a certificate.
+func TestLintFindingsFollowCertificateOrder(t *testing.T) {
+	ca := false
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile"},
+		Requirements: section7.Requirements{
+			Version:            3,
+			SerialNumber:       section7.SerialNumber{Required: true},
+			SignatureAlgorithm: fixtureSignature(),
+			Issuer:             fixtureDN(),
+			Validity:           section7.Validity{MaximumDays: 398},
+			Subject:            fixtureDN(),
+			PublicKey:          fixtureKey(),
+			Extensions: map[string]section7.Extension{
+				"basic_constraints": {Required: section7.PresenceRequired, Critical: section7.CriticalityRequired, CA: &ca},
+			},
+		},
+	}
+
+	first := map[string]int{}
+	for i, f := range lint(createCertWithSKI(t), p) {
+		prefix, _, _ := strings.Cut(f.RuleID, "-")
+		if _, seen := first[prefix]; !seen {
+			first[prefix] = i
+		}
+	}
+
+	order := []string{"VERSION", "SERIAL", "SIGALG", "ISSUER", "VALIDITY", "SUBJECT", "PUBKEY", "EXT"}
+	for i := 1; i < len(order); i++ {
+		prev, okPrev := first[order[i-1]]
+		cur, ok := first[order[i]]
+		if !okPrev || !ok || cur < prev {
+			t.Fatalf("findings should follow %v, got first positions %v", order, first)
+		}
+	}
+}
+
 // TestLintFindingOrderIsStable guards against iterating the profile's maps
 // directly. Go randomizes map iteration, so doing that made the findings for
 // one certificate come out in a different order on every run.

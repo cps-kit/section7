@@ -6,16 +6,11 @@
 requirements:
   subject:
     attributes:
-      common_name:
-        required: false
-        length:
-          min: 1
-          max: 64
-      organization_name:
+      country_name:
         required: true
         length:
-          min: 1
-          max: 64
+          min: 2
+          max: 2
       state_or_province_name:
         required: true
         length:
@@ -26,8 +21,13 @@ requirements:
         length:
           min: 1
           max: 128
-      country_name:
+      organization_name:
         required: true
         length:
-          min: 2
-          max: 2
+          min: 1
+          max: 64
+      common_name:
+        required: false
+        length:
+          min: 1
+          max: 64

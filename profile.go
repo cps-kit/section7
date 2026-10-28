@@ -1550,22 +1550,6 @@ func validateTransparency(p *Profile) []string {
 func ValidateProfile(p *Profile) []string {
 	var errs []string
 
-	// A certificate always carries a version, so leaving it unstated would
-	// leave the field unchecked rather than constrained.
-	if p.Requirements.Version <= 0 {
-		errs = append(errs,
-			"requirements.version is missing; a profile must state the X.509 version it describes")
-	}
-
-	// The validity period is a bound rather than a list, so leaving it out has
-	// no strict reading the way an empty list does: it would simply go
-	// unchecked. A profile must therefore state it.
-	if p.Requirements.Validity.MaximumDays <= 0 {
-		errs = append(errs,
-			"requirements.validity.maximum_days is missing; a profile must state the maximum "+
-				"validity period it permits, as a number of days greater than zero")
-	}
-
 	// Check recognized_by
 	if oid := p.Profile.RecognizedBy.PolicyOID; oid != "" {
 		if !IsValidOID(oid) {
@@ -1589,10 +1573,20 @@ func ValidateProfile(p *Profile) []string {
 		}
 	}
 
-	// Check subject attributes
-	for fieldName := range p.Requirements.Subject.Attributes {
-		if !IsSupportedSubjectAttribute(fieldName) {
-			errs = append(errs, fmt.Sprintf("unknown subject attribute: %q", fieldName))
+	// The requirements below are checked in the field order of the TBSCertificate.
+
+	// A certificate always carries a version, so leaving it unstated would
+	// leave the field unchecked rather than constrained.
+	if p.Requirements.Version <= 0 {
+		errs = append(errs,
+			"requirements.version is missing; a profile must state the X.509 version it describes")
+	}
+
+	// Check signature algorithms
+	for _, name := range p.Requirements.SignatureAlgorithm.Allowed {
+		if _, ok := SignatureAlgorithmOID(name); !ok {
+			errs = append(errs, fmt.Sprintf(
+				"unknown signature algorithm %q in requirements.signature_algorithm.allowed", name))
 		}
 	}
 
@@ -1603,11 +1597,19 @@ func ValidateProfile(p *Profile) []string {
 		}
 	}
 
-	// Check signature algorithms
-	for _, name := range p.Requirements.SignatureAlgorithm.Allowed {
-		if _, ok := SignatureAlgorithmOID(name); !ok {
-			errs = append(errs, fmt.Sprintf(
-				"unknown signature algorithm %q in requirements.signature_algorithm.allowed", name))
+	// The validity period is a bound rather than a list, so leaving it out has
+	// no strict reading the way an empty list does: it would simply go
+	// unchecked. A profile must therefore state it.
+	if p.Requirements.Validity.MaximumDays <= 0 {
+		errs = append(errs,
+			"requirements.validity.maximum_days is missing; a profile must state the maximum "+
+				"validity period it permits, as a number of days greater than zero")
+	}
+
+	// Check subject attributes
+	for fieldName := range p.Requirements.Subject.Attributes {
+		if !IsSupportedSubjectAttribute(fieldName) {
+			errs = append(errs, fmt.Sprintf("unknown subject attribute: %q", fieldName))
 		}
 	}
 
@@ -1991,6 +1993,13 @@ func ExtensionNames(extensions map[string]Extension) []string {
 
 // ---------- Strict schema validation (raw YAML keys) ----------
 
+// RequirementOrder lists the keys of a requirements block in the field order of
+// the TBSCertificate.
+var RequirementOrder = []string{
+	"version", "serial_number", "signature_algorithm", "issuer",
+	"validity", "subject", "public_key", "extensions",
+}
+
 // keys builds a set from the given names.
 func keys(names ...string) map[string]bool {
 	m := make(map[string]bool, len(names))
@@ -2004,7 +2013,7 @@ var (
 	topLevelKeys           = keys("profile", "requirements", "rules")
 	profileKeys            = keys("name", "version", "recognized_by")
 	recognizedByKeys       = keys("policy_oid")
-	requirementKeys        = keys("version", "serial_number", "signature_algorithm", "issuer", "validity", "subject", "public_key", "extensions")
+	requirementKeys        = keys(RequirementOrder...)
 	signatureAlgorithmKeys = keys("allowed")
 	publicKeyKeys          = keys("algorithms")
 	keyAlgorithmKeys       = keys("name", "key_sizes", "curves")
@@ -2120,8 +2129,26 @@ func ValidateRaw(raw map[string]interface{}) []string {
 	if req, ok := asMap(raw["requirements"]); ok {
 		errs = append(errs, checkKeys(req, requirementKeys, "requirements")...)
 
+		// The blocks below are checked in the field order of the TBSCertificate.
+
+		if sn, ok := asMap(req["serial_number"]); ok {
+			errs = append(errs, checkKeys(sn, serialNumberKeys, "requirements.serial_number")...)
+		}
+
 		if sa, ok := asMap(req["signature_algorithm"]); ok {
 			errs = append(errs, checkKeys(sa, signatureAlgorithmKeys, "requirements.signature_algorithm")...)
+		}
+
+		if dn, ok := asMap(req["issuer"]); ok {
+			errs = append(errs, validateDNKeys(dn, "requirements.issuer")...)
+		}
+
+		if v, ok := asMap(req["validity"]); ok {
+			errs = append(errs, checkKeys(v, validityKeys, "requirements.validity")...)
+		}
+
+		if dn, ok := asMap(req["subject"]); ok {
+			errs = append(errs, validateDNKeys(dn, "requirements.subject")...)
 		}
 
 		if pk, ok := asMap(req["public_key"]); ok {
@@ -2136,22 +2163,6 @@ func ValidateRaw(raw map[string]interface{}) []string {
 						fmt.Sprintf("requirements.public_key.algorithms[%d]", i))...)
 				}
 			}
-		}
-
-		if v, ok := asMap(req["validity"]); ok {
-			errs = append(errs, checkKeys(v, validityKeys, "requirements.validity")...)
-		}
-
-		if sn, ok := asMap(req["serial_number"]); ok {
-			errs = append(errs, checkKeys(sn, serialNumberKeys, "requirements.serial_number")...)
-		}
-
-		for _, name := range []string{"issuer", "subject"} {
-			dn, ok := asMap(req[name])
-			if !ok {
-				continue
-			}
-			errs = append(errs, validateDNKeys(dn, "requirements."+name)...)
 		}
 
 		if exts, ok := asMap(req["extensions"]); ok {

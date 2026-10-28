@@ -9,7 +9,7 @@ The linter can validate certificates against the profiles.
 
 A profile describes every field and extension a conforming certificate may contain. The lists are exhaustive: anything a profile does not describe is reported as a violation, so a profile that says nothing about extensions permits none. Permitting something is always an explicit act.
 
-The fields a profile can describe are the certificate version (`requirements.version`, written as `v1`, `v2` or `v3`), the signature algorithm, the subject public key algorithm with its key sizes or curves, the validity period, the serial number, the issuer and subject distinguished names, and the extensions. The optional `profile.version` is a positive integer recording the revision of the profile document itself.
+The fields a profile can describe follow the TBSCertificate of RFC 5280: the certificate version, the serial number, the signature algorithm, the issuer distinguished name, the validity period, the subject distinguished name, the subject public key algorithm with its key sizes or curves, and the extensions. The generated document, the lint report and `profile-gen -expand` all present them in that order. The optional `profile.version` is a positive integer recording the revision of the profile document itself.
 
 Files whose name begins with `_` are shared definitions rather than profiles of their own, and are skipped by profile discovery. A profile pulls them in with `extends`, naming one file or several:
 
@@ -29,7 +29,71 @@ profile-gen -expand profiles/tls-ov.yaml
 
 ## Supported YAML configuration
 
-Profiles are structured as a YAML document with a top-level `profile` block and a `requirements` block. The linter understands the following configuration patterns.
+Profiles are structured as a YAML document with a top-level `profile` block and a `requirements` block. The linter understands the following configuration patterns, described here in the order the fields appear in a certificate.
+
+### Version
+
+```yaml
+requirements:
+  version: v3
+```
+
+`requirements.version` is required and must be `v1`, `v2` or `v3`.
+
+### Serial number
+
+```yaml
+requirements:
+  serial_number:
+    required: true
+    minimum_octets: 8
+    maximum_bit_length: 159
+```
+
+The linter supports:
+
+- `requirements.serial_number.required`
+- `requirements.serial_number.maximum_bit_length`
+- `requirements.serial_number.minimum_octets`
+- `requirements.serial_number.textual_requirement`
+
+### Signature algorithm
+
+```yaml
+requirements:
+  signature_algorithm:
+    allowed:
+      - sha256WithRSAEncryption
+      - ecdsa-with-SHA256
+```
+
+The list is exhaustive, and a profile that lists none permits none. Entries may be a well-known name (`sha256WithRSAEncryption`, `sha384WithRSAEncryption`, `sha512WithRSAEncryption`, `id-RSASSA-PSS`, `ecdsa-with-SHA256`, `ecdsa-with-SHA384`, `ecdsa-with-SHA512`, `id-Ed25519`, `id-Ed448`) or a raw OID.
+
+### Issuer DN requirements
+
+The `requirements.issuer` block has the same form as the subject block below, and its attribute list is equally exhaustive. The issuer is never permitted to be empty.
+
+```yaml
+requirements:
+  issuer:
+    attributes:
+      country_name:
+        required: true
+      organization_name:
+        required: true
+      common_name:
+        required: true
+```
+
+### Validity
+
+```yaml
+requirements:
+  validity:
+    maximum_days: 398
+```
+
+`requirements.validity.maximum_days` is required.
 
 ### Subject DN requirements
 
@@ -39,10 +103,6 @@ The `requirements.subject` block lists the attributes permitted in the subject D
 requirements:
   subject:
     attributes:
-      common_name:
-        required: true
-      organization_name:
-        required: true
       country_name:
         required: true
       locality_name:
@@ -50,6 +110,10 @@ requirements:
         length:
           min: 2
           max: 64
+      organization_name:
+        required: true
+      common_name:
+        required: true
 ```
 
 Supported subject attribute names include:
@@ -85,6 +149,23 @@ Each attribute can specify:
 - `required: true|false`
 - `length.min`
 - `length.max`
+
+### Subject public key
+
+```yaml
+requirements:
+  public_key:
+    algorithms:
+      - name: rsaEncryption
+        key_sizes:
+          - 2048
+          - 4096
+      - name: id-ecPublicKey
+        curves:
+          - P-256
+```
+
+The list is exhaustive, and a profile that lists none permits none. `name` may be a well-known name (`rsaEncryption`, `id-RSASSA-PSS`, `id-ecPublicKey`, `id-Ed25519`, `id-Ed448`) or a raw OID. `key_sizes` applies to RSA keys and `curves` to elliptic curve keys; curves may be written as `P-256`, `secp256r1`, `prime256v1` or `nistp256`, and likewise for P-384 and P-521.
 
 ### Extension requirements
 
@@ -161,27 +242,6 @@ Each extension entry may contain:
 - `optional_arcs: []` (for OID-valued extensions)
 - `access_descriptions: []`
 - `distribution_points: []`
-
-### Serial number and validity
-
-```yaml
-requirements:
-  validity:
-    maximum_days: 398
-
-  serial_number:
-    required: true
-    minimum_octets: 8
-    maximum_bit_length: 159
-```
-
-The linter also supports:
-
-- `requirements.validity.maximum_days`
-- `requirements.serial_number.required`
-- `requirements.serial_number.maximum_bit_length`
-- `requirements.serial_number.minimum_octets`
-- `requirements.serial_number.textual_requirement`
 
 ### Notes
 

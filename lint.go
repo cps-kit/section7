@@ -820,6 +820,8 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 		}
 	}
 
+	// The checks below follow the field order of the TBSCertificate.
+
 	// ---- Version ----
 	if want := int(p.Requirements.Version); want > 0 {
 		if cert.Version == want {
@@ -827,28 +829,6 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 		} else {
 			add(Error, "VERSION-001", fmt.Sprintf(
 				"certificate is X.509v%d but the profile describes X.509v%d", cert.Version, want))
-		}
-	}
-
-	// ---- Signature algorithm ----
-	findings = append(findings, signatureFindings(cert, p.Requirements.SignatureAlgorithm)...)
-
-	// ---- Subject public key ----
-	findings = append(findings, publicKeyFindings(cert, p.Requirements.PublicKey)...)
-
-	// ---- Validity ----
-	if p.Requirements.Validity.MaximumDays > 0 {
-		maxDur := time.Duration(p.Requirements.Validity.MaximumDays) * 24 * time.Hour
-		actual := cert.NotAfter.Sub(cert.NotBefore)
-		// Allow a 1-second rounding buffer
-		if actual > maxDur+time.Second {
-			add(Error, "VALIDITY-001", fmt.Sprintf(
-				"validity period is %s, maximum allowed is %d days",
-				durationDays(actual), p.Requirements.Validity.MaximumDays))
-		} else {
-			add(Info, "VALIDITY-001", fmt.Sprintf(
-				"validity period OK (%s ≤ %d days)",
-				durationDays(actual), p.Requirements.Validity.MaximumDays))
 		}
 	}
 
@@ -888,7 +868,35 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 		}
 	}
 
-	// ---- Subject and issuer ----
+	// ---- Signature algorithm ----
+	findings = append(findings, signatureFindings(cert, p.Requirements.SignatureAlgorithm)...)
+
+	// ---- Issuer ----
+
+	// RFC 5280 4.1.2.4: the issuer field MUST contain a non-empty distinguished name.
+	if isEmptyName(cert.Issuer) {
+		add(Error, "ISSUER-000", "issuer distinguished name is empty")
+	}
+	findings = append(findings, dnFindings(
+		p.Requirements.Issuer, IssuerValues(cert), CertIssuerAttributeOIDs(cert), "ISSUER", "issuer")...)
+
+	// ---- Validity ----
+	if p.Requirements.Validity.MaximumDays > 0 {
+		maxDur := time.Duration(p.Requirements.Validity.MaximumDays) * 24 * time.Hour
+		actual := cert.NotAfter.Sub(cert.NotBefore)
+		// Allow a 1-second rounding buffer
+		if actual > maxDur+time.Second {
+			add(Error, "VALIDITY-001", fmt.Sprintf(
+				"validity period is %s, maximum allowed is %d days",
+				durationDays(actual), p.Requirements.Validity.MaximumDays))
+		} else {
+			add(Info, "VALIDITY-001", fmt.Sprintf(
+				"validity period OK (%s ≤ %d days)",
+				durationDays(actual), p.Requirements.Validity.MaximumDays))
+		}
+	}
+
+	// ---- Subject ----
 
 	// RFC 5280 4.1.2.6 and 4.2.1.6: an empty subject demands a critical subjectAltName.
 	if isEmptyName(cert.Subject) {
@@ -905,12 +913,8 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 	findings = append(findings, dnFindings(
 		p.Requirements.Subject, SubjectValues(cert), CertSubjectAttributeOIDs(cert), "SUBJECT", "subject")...)
 
-	// RFC 5280 4.1.2.4: the issuer field MUST contain a non-empty distinguished name.
-	if isEmptyName(cert.Issuer) {
-		add(Error, "ISSUER-000", "issuer distinguished name is empty")
-	}
-	findings = append(findings, dnFindings(
-		p.Requirements.Issuer, IssuerValues(cert), CertIssuerAttributeOIDs(cert), "ISSUER", "issuer")...)
+	// ---- Subject public key ----
+	findings = append(findings, publicKeyFindings(cert, p.Requirements.PublicKey)...)
 
 	// ---- Extensions ----
 	for _, extName := range ExtensionNames(p.Requirements.Extensions) {
