@@ -1016,34 +1016,112 @@ func TestLintProfileWithoutAlgorithmsPermitsNone(t *testing.T) {
 
 // ---------- Serial number ----------
 
-func TestLintSerialNumberRequiredOK(t *testing.T) {
-	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile"},
-		Requirements: section7.Requirements{
-			SerialNumber: section7.SerialNumber{Required: true, Declared: true},
-		},
-	}
+func TestLintSerialNumberOK(t *testing.T) {
+	p := section7.Profile{Profile: section7.Meta{Name: "Test Profile"}}
 
 	cert, _ := createTestCert("example.com", "Test Org", "US", 30, false, nil)
 
 	if !hasFinding(section7.Lint(cert, p), "SERIAL-001", section7.Info) {
-		t.Error("a positive serial number should satisfy the requirement")
+		t.Error("a positive serial number should satisfy RFC 5280")
 	}
 }
 
 func TestLintSerialNumberZeroRejected(t *testing.T) {
-	p := section7.Profile{
-		Profile: section7.Meta{Name: "Test Profile"},
-		Requirements: section7.Requirements{
-			SerialNumber: section7.SerialNumber{Required: true, Declared: true},
-		},
-	}
+	p := section7.Profile{Profile: section7.Meta{Name: "Test Profile"}}
 
 	cert, _ := createTestCert("example.com", "Test Org", "US", 30, false, nil)
 	cert.SerialNumber = big.NewInt(0)
 
 	if !hasFinding(section7.Lint(cert, p), "SERIAL-001", section7.Error) {
-		t.Error("a zero serial number should be rejected")
+		t.Error("a zero serial number should be rejected even when the profile says nothing")
+	}
+}
+
+// TestLintSerialNumberNegativeParsed verifies a negative serial number is
+// parsed and reported, rather than refused by crypto/x509.
+func TestLintSerialNumberNegativeParsed(t *testing.T) {
+	_, certPEM := createTestCert("example.com", "Test Org", "US", 30, false, nil)
+	block, _ := pem.Decode(certPEM)
+
+	// The version and a serial of 1, rewritten in place to a serial of -1.
+	positive := []byte{0xa0, 0x03, 0x02, 0x01, 0x02, 0x02, 0x01, 0x01}
+	negative := []byte{0xa0, 0x03, 0x02, 0x01, 0x02, 0x02, 0x01, 0xff}
+	if !bytes.Contains(block.Bytes, positive) {
+		t.Fatal("serial number not found in the test certificate")
+	}
+	cert, err := x509.ParseCertificate(bytes.Replace(block.Bytes, positive, negative, 1))
+	if err != nil {
+		t.Fatalf("parsing a negative serial number: %v", err)
+	}
+
+	if !hasFinding(section7.Lint(cert, section7.Profile{}), "SERIAL-001", section7.Error) {
+		t.Error("a negative serial number should be reported")
+	}
+}
+
+// TestLintSerialNumberOctets verifies octets are counted in the DER encoding,
+// which needs a leading zero when the top bit of the magnitude is set.
+func TestLintSerialNumberOctets(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile"},
+		Requirements: section7.Requirements{
+			SerialNumber: section7.SerialNumber{},
+		},
+	}
+
+	tests := []struct {
+		name   string
+		bits   uint
+		errors []string
+	}{
+		{"159 bits is 20 octets", 159, nil},
+		{"160 bits is 21 octets", 160, []string{"SERIAL-001", "SERIAL-002"}},
+		{"1 bit is 1 octet", 1, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cert, _ := createTestCert("example.com", "Test Org", "US", 30, false, nil)
+			cert.SerialNumber = new(big.Int).Lsh(big.NewInt(1), tt.bits-1)
+
+			var got []string
+			for _, f := range section7.Lint(cert, p) {
+				if strings.HasPrefix(f.RuleID, "SERIAL-") && f.Severity == section7.Error {
+					got = append(got, f.RuleID)
+				}
+			}
+			if strings.Join(got, ",") != strings.Join(tt.errors, ",") {
+				t.Errorf("errors %v, want %v", got, tt.errors)
+			}
+		})
+	}
+}
+
+// TestLintSerialNumberMinimumBitLength verifies minimum_bit_length, and that
+// it defaults to 1 when omitted.
+func TestLintSerialNumberMinimumBitLength(t *testing.T) {
+	sixtyFour := 64
+	tests := []struct {
+		name    string
+		minimum *int
+		bits    uint
+		wantErr bool
+	}{
+		{"default allows 1 bit", nil, 1, false},
+		{"64 bits meets 64", &sixtyFour, 64, false},
+		{"63 bits is short of 64", &sixtyFour, 63, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := section7.Profile{Requirements: section7.Requirements{
+				SerialNumber: section7.SerialNumber{MinimumBitLength: tt.minimum},
+			}}
+			cert, _ := createTestCert("example.com", "Test Org", "US", 30, false, nil)
+			cert.SerialNumber = new(big.Int).Lsh(big.NewInt(1), tt.bits-1)
+
+			if got := hasFinding(section7.Lint(cert, p), "SERIAL-003", section7.Error); got != tt.wantErr {
+				t.Errorf("SERIAL-003 error = %v, want %v", got, tt.wantErr)
+			}
+		})
 	}
 }
 
@@ -1446,7 +1524,6 @@ func TestLintFindingsFollowCertificateOrder(t *testing.T) {
 		Profile: section7.Meta{Name: "Test Profile"},
 		Requirements: section7.Requirements{
 			Version:            3,
-			SerialNumber:       section7.SerialNumber{Required: true},
 			SignatureAlgorithm: fixtureSignature(),
 			Issuer:             fixtureDN(),
 			Validity:           section7.Validity{MaximumDays: 398},

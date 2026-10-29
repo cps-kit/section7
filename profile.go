@@ -117,39 +117,41 @@ type KeyAlgorithm struct {
 	Curves []string `yaml:"curves"`
 }
 
-// SerialNumber describes the requirements for the certificate serial number.
+// SerialNumberMaxBits is the longest serial number whose DER encoding fits the
+// 20 octets RFC 5280 permits, as a positive INTEGER needs a leading zero bit.
+const SerialNumberMaxBits = 159
+
+// SerialNumber describes the requirements for the certificate serial number,
+// beyond those of RFC 5280, which always apply.
 type SerialNumber struct {
-	// Required indicates the serial number must be present and positive.
-	Required bool `yaml:"required"`
 	// MaximumBitLength constrains the maximum bit length of the serial number.
 	// For example, a value of 159 enforces the constraint "less than 2^159".
-	// If zero or omitted, no bit length constraint is enforced.
-	MaximumBitLength int `yaml:"maximum_bit_length"`
-	// MinimumOctets constrains the minimum number of octets (bytes) in the
-	// serial number, expressing a minimum entropy requirement.
-	// For example, a value of 8 enforces "at least 64 bits of entropy".
-	// If zero or omitted, no minimum octets constraint is enforced.
-	MinimumOctets int `yaml:"minimum_octets"`
+	// If omitted, it is SerialNumberMaxBits.
+	MaximumBitLength *int `yaml:"maximum_bit_length"`
+	// MinimumBitLength constrains the minimum bit length of the serial number.
+	// If omitted, it is 1.
+	MinimumBitLength *int `yaml:"minimum_bit_length"`
 	// TextualRequirement is prose reproduced verbatim in the generated CPS
 	// section 7 text.
 	// It expresses requirements (such as non-sequential numbers or CSPRNG entropy)
 	// that cannot be verified by inspecting a certificate alone.
 	TextualRequirement string `yaml:"textual_requirement"`
-
-	// Declared records whether the profile contained a serial_number block.
-	Declared bool `yaml:"-"`
 }
 
-// UnmarshalYAML records that the serial_number block was present.
-func (s *SerialNumber) UnmarshalYAML(node *yaml.Node) error {
-	type raw SerialNumber
-	var r raw
-	if err := node.Decode(&r); err != nil {
-		return err
+// MinimumBits returns the minimum bit length, applying the default.
+func (s SerialNumber) MinimumBits() int {
+	if s.MinimumBitLength == nil {
+		return 1
 	}
-	*s = SerialNumber(r)
-	s.Declared = true
-	return nil
+	return *s.MinimumBitLength
+}
+
+// MaximumBits returns the maximum bit length, applying the default.
+func (s SerialNumber) MaximumBits() int {
+	if s.MaximumBitLength == nil {
+		return SerialNumberMaxBits
+	}
+	return *s.MaximumBitLength
 }
 
 // DistinguishedName describes the requirements for one of the certificate's
@@ -1600,6 +1602,22 @@ func ValidateProfile(p *Profile) []string {
 			"requirements.version is missing; a profile must state the X.509 version it describes")
 	}
 
+	sn := p.Requirements.SerialNumber
+	minBits, maxBits := sn.MinimumBits(), sn.MaximumBits()
+	if minBits < 1 {
+		errs = append(errs, fmt.Sprintf(
+			"requirements.serial_number.minimum_bit_length must be at least 1, got %d", minBits))
+	}
+	if maxBits < 1 || maxBits > SerialNumberMaxBits {
+		errs = append(errs, fmt.Sprintf(
+			"requirements.serial_number.maximum_bit_length must be between 1 and %d, got %d",
+			SerialNumberMaxBits, maxBits))
+	} else if minBits > maxBits {
+		errs = append(errs, fmt.Sprintf(
+			"requirements.serial_number.minimum_bit_length %d exceeds maximum_bit_length %d",
+			minBits, maxBits))
+	}
+
 	// Check signature algorithms. The list is exhaustive, so an empty one
 	// would describe no certificate at all.
 	if len(p.Requirements.SignatureAlgorithm.Allowed) == 0 {
@@ -2085,7 +2103,7 @@ var (
 	publicKeyKeys          = keys("algorithms")
 	keyAlgorithmKeys       = keys("name", "key_sizes", "curves")
 	validityKeys           = keys("maximum_days")
-	serialNumberKeys       = keys("required", "maximum_bit_length", "minimum_octets", "textual_requirement")
+	serialNumberKeys       = keys("maximum_bit_length", "minimum_bit_length", "textual_requirement")
 	subjectKeys            = keys("attributes")
 	subjectFieldKeys       = keys("required", "length")
 	lengthKeys             = keys("min", "max")

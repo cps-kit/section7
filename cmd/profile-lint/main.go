@@ -1,4 +1,8 @@
 // Lint a single X.509 certificate against a CP/CPS profile.
+//
+// Negative serial numbers are parsed so that they are reported, not refused.
+//
+//go:debug x509negativeserial=1
 package main
 
 import (

@@ -10,9 +10,8 @@ requirements:
   version: v3
 
   serial_number:
-    required: true
+    minimum_bit_length: 1
     maximum_bit_length: 159
-    minimum_octets: 8
     textual_requirement: "MUST be a non-sequential number greater than zero (0) and less than 2¹⁵⁹ containing at least 64 bits of output from a CSPRNG."
 
   signature_algorithm:

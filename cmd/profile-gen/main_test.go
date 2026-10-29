@@ -246,7 +246,6 @@ func TestRenderProfileFollowsCertificateOrder(t *testing.T) {
 		Profile: section7.Meta{Name: "Order Test"},
 		Requirements: section7.Requirements{
 			Version:            3,
-			SerialNumber:       section7.SerialNumber{Required: true, Declared: true},
 			SignatureAlgorithm: section7.SignatureAlgorithm{Allowed: []string{"sha256WithRSAEncryption"}},
 			Issuer: section7.DistinguishedName{
 				Attributes: map[string]section7.Field{"common_name": {Required: true}},
@@ -374,7 +373,7 @@ requirements:
   validity:
     maximum_days: 398
   serial_number:
-    required: true
+    maximum_bit_length: 159
   version: v3
   public_key:
     algorithms: [{name: rsaEncryption}]
