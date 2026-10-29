@@ -943,6 +943,35 @@ func TestLintPublicKeyCurve(t *testing.T) {
 	}
 }
 
+// TestLintKeyUsageNotListedInBitOrder verifies unlisted key usages are reported
+// in the bit order of RFC 5280, the same on every run.
+func TestLintKeyUsageNotListedInBitOrder(t *testing.T) {
+	p := section7.Profile{Requirements: section7.Requirements{Extensions: map[string]section7.Extension{
+		"key_usage": {
+			Required:       section7.PresenceRequired,
+			Critical:       section7.CriticalityRequired,
+			RequiredValues: []string{"digitalSignature"},
+		},
+	}}}
+	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
+	cert.KeyUsage = x509.KeyUsageDigitalSignature | x509.KeyUsageContentCommitment |
+		x509.KeyUsageKeyEncipherment | x509.KeyUsageKeyAgreement | x509.KeyUsageDecipherOnly
+
+	want := "contentCommitment,keyEncipherment,keyAgreement,decipherOnly"
+	// Map iteration order varies between runs, so one pass could pass by chance.
+	for i := 0; i < 20; i++ {
+		var got []string
+		for _, f := range lint(cert, p) {
+			if f.RuleID == "EXT-008" {
+				got = append(got, strings.Split(f.Message, "'")[1])
+			}
+		}
+		if strings.Join(got, ",") != want {
+			t.Fatalf("EXT-008 order %v, want %s", got, want)
+		}
+	}
+}
+
 // TestLintPublicKeyEmptyListsPermitNone verifies an RSA entry without key
 // sizes and an elliptic curve entry without curves permit no key at all.
 func TestLintPublicKeyEmptyListsPermitNone(t *testing.T) {
