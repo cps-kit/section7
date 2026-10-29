@@ -20,7 +20,6 @@ var profiles embed.FS
 type Profile struct {
 	Profile      Meta         `yaml:"profile"`
 	Requirements Requirements `yaml:"requirements"`
-	Rules        []Rule       `yaml:"rules"`
 }
 
 type Meta struct {
@@ -515,11 +514,6 @@ func (r Requirements) CoversPrecertificates() bool {
 	return false
 }
 
-type Rule struct {
-	ID   string `yaml:"id"`
-	Text string `yaml:"text"`
-}
-
 // ---------- Loader ----------
 
 type Loaded struct {
@@ -734,53 +728,6 @@ func IsValidOID(s string) bool {
 		}
 	}
 	return true
-}
-
-// ---------- Path interpolation (shared by generator and linter) ----------
-
-// ResolvePath walks a map[string]interface{} tree using a dot-separated path.
-// When the resolved value is a nested map it returns the key name as a
-// human-readable label (snake_case → space-separated words).
-func ResolvePath(data map[string]interface{}, path string) (string, bool) {
-	parts := strings.SplitN(path, ".", 2)
-	val, exists := data[parts[0]]
-	if !exists {
-		return "", false
-	}
-	if len(parts) == 1 {
-		if _, isMap := val.(map[string]interface{}); isMap {
-			words := strings.Split(parts[0], "_")
-			return strings.Join(words, " "), true
-		}
-		return fmt.Sprintf("%v", val), true
-	}
-	nested, ok := val.(map[string]interface{})
-	if !ok {
-		return "", false
-	}
-	return ResolvePath(nested, parts[1])
-}
-
-// InterpolateText replaces {dot.separated.path} references in text with
-// values looked up from the raw profile map.
-func InterpolateText(text string, raw map[string]interface{}) string {
-	for {
-		start := strings.Index(text, "{")
-		if start == -1 {
-			break
-		}
-		end := strings.Index(text[start:], "}")
-		if end == -1 {
-			break
-		}
-		key := text[start+1 : start+end]
-		if val, ok := ResolvePath(raw, key); ok {
-			text = text[:start] + val + text[start+end+1:]
-		} else {
-			break
-		}
-	}
-	return text
 }
 
 // ---------- Validation ----------
@@ -2104,7 +2051,7 @@ func keys(names ...string) map[string]bool {
 }
 
 var (
-	topLevelKeys           = keys("profile", "requirements", "rules")
+	topLevelKeys           = keys("profile", "requirements")
 	profileKeys            = keys("name", "version", "recognized_by")
 	recognizedByKeys       = keys("policy_oid")
 	requirementKeys        = keys(RequirementOrder...)
@@ -2116,7 +2063,6 @@ var (
 	subjectKeys            = keys("attributes")
 	subjectFieldKeys       = keys("required", "length")
 	lengthKeys             = keys("min", "max")
-	ruleKeys               = keys("id", "text")
 	defaultExtensionKeys   = keys("critical", "required")
 	accessDescriptionKeys  = keys("access_method", "required")
 	distributionPointKeys  = keys("full_name", "name_relative_to_crl_issuer", "reasons", "crl_issuer", "required")
@@ -2314,16 +2260,6 @@ func ValidateRaw(raw map[string]interface{}) []string {
 					}
 				}
 			}
-		}
-	}
-
-	if rules, ok := raw["rules"].([]interface{}); ok {
-		for i, r := range rules {
-			m, ok := asMap(r)
-			if !ok {
-				continue
-			}
-			errs = append(errs, checkKeys(m, ruleKeys, fmt.Sprintf("rules[%d]", i))...)
 		}
 	}
 
