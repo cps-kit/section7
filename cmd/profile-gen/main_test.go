@@ -346,6 +346,10 @@ requirements:
   serial_number:
     required: true
   version: v3
+  public_key:
+    algorithms: [{name: rsaEncryption}]
+  signature_algorithm:
+    allowed: [sha256WithRSAEncryption]
 profile:
   name: Order Test
 `

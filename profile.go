@@ -1582,7 +1582,13 @@ func ValidateProfile(p *Profile) []string {
 			"requirements.version is missing; a profile must state the X.509 version it describes")
 	}
 
-	// Check signature algorithms
+	// Check signature algorithms. The list is exhaustive, so an empty one
+	// would describe no certificate at all.
+	if len(p.Requirements.SignatureAlgorithm.Allowed) == 0 {
+		errs = append(errs,
+			"requirements.signature_algorithm.allowed is missing; a profile must list the signature "+
+				"algorithms it permits")
+	}
 	for _, name := range p.Requirements.SignatureAlgorithm.Allowed {
 		if _, ok := SignatureAlgorithmOID(name); !ok {
 			errs = append(errs, fmt.Sprintf(
@@ -1613,7 +1619,13 @@ func ValidateProfile(p *Profile) []string {
 		}
 	}
 
-	// Check public key algorithms
+	// Check public key algorithms. As with signature algorithms, an empty list
+	// would describe no certificate at all.
+	if len(p.Requirements.PublicKey.Algorithms) == 0 {
+		errs = append(errs,
+			"requirements.public_key.algorithms is missing; a profile must list the public key "+
+				"algorithms it permits")
+	}
 	errs = append(errs, validatePublicKey(p.Requirements.PublicKey)...)
 
 	// Check the Certificate Transparency extension pair. A profile that
