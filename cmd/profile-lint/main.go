@@ -80,6 +80,48 @@ func unmatchedFinding(cert *x509.Certificate) Finding {
 	}
 }
 
+// selectProfiles returns, in path order, the profiles recognized by the
+// certificate's policy OIDs whose version is not later than its notBefore.
+// A profile without a version is not held to its notBefore. When none
+// qualifies, it returns the finding that explains why.
+func selectProfiles(cert *x509.Certificate, profiles map[string]*section7.Loaded) ([]string, *Finding) {
+	paths := make([]string, 0, len(profiles))
+	for path := range profiles {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+
+	var tooNew, selected []string
+	for _, path := range paths {
+		p := profiles[path].Profile
+		if !certMatchesProfile(cert, p) {
+			continue
+		}
+		version := p.Profile.Version
+		if version.IsZero() || !version.After(cert.NotBefore) {
+			selected = append(selected, path)
+		} else {
+			tooNew = append(tooNew, fmt.Sprintf("%s version %s", path, version.Format(time.RFC3339Nano)))
+		}
+	}
+
+	switch {
+	case len(selected) > 0:
+		return selected, nil
+	case len(tooNew) > 0:
+		return nil, &Finding{
+			RuleID:   "PROFILE-002",
+			Severity: Error,
+			Message: fmt.Sprintf(
+				"no profile recognized by the certificate's policy OIDs has a version not later than its notBefore %s (found: %s)",
+				cert.NotBefore.Format(time.RFC3339), strings.Join(tooNew, ", ")),
+		}
+	default:
+		f := unmatchedFinding(cert)
+		return nil, &f
+	}
+}
+
 // printReport prints the findings for cert and returns the number of errors.
 func printReport(cert *x509.Certificate, certPath, against string, findings []Finding) int {
 	fmt.Printf("Linting certificate:  %s\n", certPath)
@@ -145,35 +187,23 @@ func main() {
 		return
 	}
 
-	// Auto-discovery: run every profile whose recognized_by.policy_oid is
-	// present in the certificate.
+	// Auto-discovery: run every profile that applies to the certificate.
 	profiles, err := section7.LoadDir("profiles")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading profiles: %v\n", err)
 		os.Exit(1)
 	}
 
-	paths := make([]string, 0, len(profiles))
-	for path := range profiles {
-		paths = append(paths, path)
+	selected, finding := selectProfiles(cert, profiles)
+	totalErrors := 0
+	if finding != nil {
+		totalErrors += printReport(cert, certPath, "none", []Finding{*finding})
 	}
-	sort.Strings(paths)
-
-	totalErrors, matched := 0, 0
-	for _, path := range paths {
-		loaded := profiles[path]
-		if !certMatchesProfile(cert, loaded.Profile) {
-			continue
-		}
-		if matched > 0 {
+	for i, path := range selected {
+		if i > 0 {
 			fmt.Println()
 		}
-		matched++
-		totalErrors += runProfile(cert, certPath, path, loaded)
-	}
-
-	if matched == 0 {
-		totalErrors += printReport(cert, certPath, "none", []Finding{unmatchedFinding(cert)})
+		totalErrors += runProfile(cert, certPath, path, profiles[path])
 	}
 
 	if totalErrors > 0 {

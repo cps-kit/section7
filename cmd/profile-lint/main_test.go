@@ -1688,6 +1688,59 @@ func TestLintPolicyUnderArcAccepted(t *testing.T) {
 	}
 }
 
+// TestSelectProfilesByVersion verifies that only profiles whose version
+// is not later than the certificate's notBefore are selected.
+func TestSelectProfilesByVersion(t *testing.T) {
+	cert := createCertWithPolicies(t, "2.23.140.1.2.2")
+	profile := func(oid string, version time.Time) *section7.Loaded {
+		return &section7.Loaded{Profile: section7.Profile{Profile: section7.Meta{
+			RecognizedBy: section7.RecognizedBy{PolicyOID: oid},
+			Version:      section7.ProfileVersion{Time: version},
+		}}}
+	}
+	past := cert.NotBefore.Add(-time.Hour)
+	future := cert.NotBefore.Add(time.Hour)
+
+	tests := []struct {
+		name     string
+		profiles map[string]*section7.Loaded
+		selected []string
+		ruleID   string
+	}{
+		{"older version", map[string]*section7.Loaded{
+			"a.yaml": profile("2.23.140.1.2.2", past),
+			"b.yaml": profile("2.23.140.1.2.2", future),
+			"c.yaml": profile("2.23.140.1.2.3", past),
+		}, []string{"a.yaml"}, ""},
+		{"no version", map[string]*section7.Loaded{
+			"a.yaml": profile("2.23.140.1.2.2", time.Time{}),
+		}, []string{"a.yaml"}, ""},
+		{"version equals notBefore", map[string]*section7.Loaded{
+			"a.yaml": profile("2.23.140.1.2.2", cert.NotBefore),
+		}, []string{"a.yaml"}, ""},
+		{"only newer versions", map[string]*section7.Loaded{
+			"a.yaml": profile("2.23.140.1.2.2", future),
+		}, nil, "PROFILE-002"},
+		{"no policy match", map[string]*section7.Loaded{
+			"a.yaml": profile("2.23.140.1.2.3", past),
+		}, nil, "PROFILE-001"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			selected, f := selectProfiles(cert, tt.profiles)
+			if strings.Join(selected, ",") != strings.Join(tt.selected, ",") {
+				t.Errorf("selected %v, want %v", selected, tt.selected)
+			}
+			switch {
+			case tt.ruleID == "" && f != nil:
+				t.Errorf("unexpected finding %v", f)
+			case tt.ruleID != "" && (f == nil || f.RuleID != tt.ruleID || f.Severity != Error):
+				t.Errorf("got finding %v, want a %s error", f, tt.ruleID)
+			}
+		})
+	}
+}
+
 // TestLintPolicyOIDMissingListsFound verifies the POLICY-001 error names the
 // policy OIDs the certificate does carry, or says it carries none.
 func TestLintPolicyOIDMissingListsFound(t *testing.T) {
