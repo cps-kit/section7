@@ -115,7 +115,7 @@ func TestValidateProfileValid(t *testing.T) {
 			SignatureAlgorithm: SignatureAlgorithm{Allowed: []string{"sha256WithRSAEncryption"}},
 			Issuer:             DistinguishedName{Attributes: map[string]Field{"common_name": {}}},
 			Validity:           Validity{MaximumDays: 398},
-			PublicKey:          PublicKey{Algorithms: []KeyAlgorithm{{Name: "rsaEncryption"}}},
+			PublicKey:          PublicKey{Algorithms: []KeyAlgorithm{{Name: "rsaEncryption", KeySizes: []int{2048}}}},
 			Subject: DistinguishedName{
 				Attributes: map[string]Field{
 					"common_name":       {Required: true},
@@ -208,7 +208,7 @@ func TestValidateProfileMultipleErrors(t *testing.T) {
 			SignatureAlgorithm: SignatureAlgorithm{Allowed: []string{"sha256WithRSAEncryption"}},
 			Issuer:             DistinguishedName{Attributes: map[string]Field{"common_name": {}}},
 			Validity:           Validity{MaximumDays: 398},
-			PublicKey:          PublicKey{Algorithms: []KeyAlgorithm{{Name: "rsaEncryption"}}},
+			PublicKey:          PublicKey{Algorithms: []KeyAlgorithm{{Name: "rsaEncryption", KeySizes: []int{2048}}}},
 			Subject: DistinguishedName{
 				Attributes: map[string]Field{
 					"phone_number":  {Required: false}, // UNKNOWN 1
@@ -238,7 +238,7 @@ func TestValidateProfileErrorOrderIsStable(t *testing.T) {
 			SignatureAlgorithm: SignatureAlgorithm{Allowed: []string{"sha256WithRSAEncryption"}},
 			Issuer:             DistinguishedName{Attributes: map[string]Field{"common_name": {}, "issuer_pet": {}}},
 			Validity:           Validity{MaximumDays: 398},
-			PublicKey:          PublicKey{Algorithms: []KeyAlgorithm{{Name: "rsaEncryption"}}},
+			PublicKey:          PublicKey{Algorithms: []KeyAlgorithm{{Name: "rsaEncryption", KeySizes: []int{2048}}}},
 			Subject: DistinguishedName{
 				Attributes: map[string]Field{"phone_number": {}, "favourite_pet": {}},
 			},
@@ -364,7 +364,7 @@ func TestValidateProfileRequiresVersion(t *testing.T) {
 			Validity:           Validity{MaximumDays: 398},
 			SignatureAlgorithm: SignatureAlgorithm{Allowed: []string{"sha256WithRSAEncryption"}},
 			Issuer:             DistinguishedName{Attributes: map[string]Field{"common_name": {}}},
-			PublicKey:          PublicKey{Algorithms: []KeyAlgorithm{{Name: "rsaEncryption"}}},
+			PublicKey:          PublicKey{Algorithms: []KeyAlgorithm{{Name: "rsaEncryption", KeySizes: []int{2048}}}},
 		},
 	})
 	if len(errs) != 1 || !strings.Contains(errs[0], "requirements.version is missing") {
@@ -423,7 +423,7 @@ requirements:
   issuer:
     attributes: {common_name: {}}
   public_key:
-    algorithms: [{name: rsaEncryption}]
+    algorithms: [{name: rsaEncryption, key_sizes: [2048]}]
   validity:
     maximum_days: 398
   extensions:
@@ -459,7 +459,7 @@ requirements:
   issuer:
     attributes: {common_name: {}}
   public_key:
-    algorithms: [{name: rsaEncryption}]
+    algorithms: [{name: rsaEncryption, key_sizes: [2048]}]
   validity:
     maximum_days: 398
   extensions:
@@ -589,7 +589,7 @@ requirements:
   issuer:
     attributes: {common_name: {}}
   public_key:
-    algorithms: [{name: rsaEncryption}]
+    algorithms: [{name: rsaEncryption, key_sizes: [2048]}]
   validity:
     maximum_days: 398
   extensions:
@@ -861,7 +861,7 @@ requirements:
   issuer:
     attributes: {common_name: {}}
   public_key:
-    algorithms: [{name: rsaEncryption}]
+    algorithms: [{name: rsaEncryption, key_sizes: [2048]}]
   validity:
     maximum_days: 398
   extensions:
@@ -949,7 +949,7 @@ requirements:
   issuer:
     attributes: {common_name: {}}
   public_key:
-    algorithms: [{name: rsaEncryption}]
+    algorithms: [{name: rsaEncryption, key_sizes: [2048]}]
   validity:
     maximum_days: 398
   subject:
@@ -983,7 +983,7 @@ requirements:
   issuer:
     attributes: {common_name: {}}
   public_key:
-    algorithms: [{name: rsaEncryption}]
+    algorithms: [{name: rsaEncryption, key_sizes: [2048]}]
   validity:
     maximum_days: 398
   subject:
@@ -1062,7 +1062,7 @@ requirements:
   issuer:
     attributes: {common_name: {}}
   public_key:
-    algorithms: [{name: rsaEncryption}]
+    algorithms: [{name: rsaEncryption, key_sizes: [2048]}]
   validity:
     maximum_days: 398
   extensions:
@@ -1161,7 +1161,7 @@ requirements:
   issuer:
     attributes: {common_name: {}}
   public_key:
-    algorithms: [{name: rsaEncryption}]
+    algorithms: [{name: rsaEncryption, key_sizes: [2048]}]
   validity:
     maximum_days: 398
   extensions:
@@ -1315,7 +1315,7 @@ requirements:
   issuer:
     attributes: {common_name: {}}
   public_key:
-    algorithms: [{name: rsaEncryption}]
+    algorithms: [{name: rsaEncryption, key_sizes: [2048]}]
   validity:
     maximum_days: 398
   extensions:
@@ -1450,7 +1450,7 @@ requirements:
   issuer:
     attributes: {common_name: {}}
   public_key:
-    algorithms: [{name: rsaEncryption}]
+    algorithms: [{name: rsaEncryption, key_sizes: [2048]}]
   validity:
     maximum_days: 398
   subject:
@@ -1762,6 +1762,37 @@ requirements:
 	}
 }
 
+// TestPublicKeySizesAndCurvesRequired verifies RSA keys must list their sizes
+// and elliptic curve keys their curves, so that neither defaults to any.
+func TestPublicKeySizesAndCurvesRequired(t *testing.T) {
+	loaded := loadYAML(t, `
+profile:
+  name: Unconstrained Keys
+requirements:
+  public_key:
+    algorithms:
+      - name: rsaEncryption
+      - name: id-RSASSA-PSS
+      - name: id-ecPublicKey
+      - name: id-Ed25519
+`)
+
+	var got []string
+	for _, err := range loaded.Validate() {
+		if strings.Contains(err, "key must list") {
+			got = append(got, err)
+		}
+	}
+	want := []string{
+		"requirements.public_key.algorithms[0]: an RSA key must list the 'key_sizes' it permits",
+		"requirements.public_key.algorithms[1]: an RSA key must list the 'key_sizes' it permits",
+		"requirements.public_key.algorithms[2]: an elliptic curve key must list the 'curves' it permits",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
 // TestIssuerAttributesValidated verifies the issuer is held to the same
 // attribute registry as the subject.
 func TestIssuerAttributesValidated(t *testing.T) {
@@ -1820,7 +1851,7 @@ requirements:
   issuer:
     attributes: {common_name: {}}
   public_key:
-    algorithms: [{name: rsaEncryption}]
+    algorithms: [{name: rsaEncryption, key_sizes: [2048]}]
   validity:
     maximum_days: 398
   subject:

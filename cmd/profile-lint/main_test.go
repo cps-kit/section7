@@ -943,6 +943,26 @@ func TestLintPublicKeyCurve(t *testing.T) {
 	}
 }
 
+// TestLintPublicKeyEmptyListsPermitNone verifies an RSA entry without key
+// sizes and an elliptic curve entry without curves permit no key at all.
+func TestLintPublicKeyEmptyListsPermitNone(t *testing.T) {
+	p := section7.Profile{
+		Profile: section7.Meta{Name: "Test Profile"},
+		Requirements: section7.Requirements{
+			PublicKey: section7.PublicKey{
+				Algorithms: []section7.KeyAlgorithm{{Name: "rsaEncryption"}, {Name: "id-ecPublicKey"}},
+			},
+		},
+	}
+
+	if !hasFinding(lint(createParsedTestCert(t, "example.com", "Test Org", "US", nil), p), "PUBKEY-002", Error) {
+		t.Error("an RSA entry listing no key sizes should permit none")
+	}
+	if !hasFinding(lint(createECCert(t, elliptic.P256()), p), "PUBKEY-003", Error) {
+		t.Error("an elliptic curve entry listing no curves should permit none")
+	}
+}
+
 // TestLintIssuerAttributesChecked verifies the issuer is held to the same
 // exhaustive attribute list as the subject.
 func TestLintIssuerAttributesChecked(t *testing.T) {

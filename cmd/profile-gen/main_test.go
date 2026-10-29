@@ -376,7 +376,7 @@ requirements:
     maximum_bit_length: 159
   version: v3
   public_key:
-    algorithms: [{name: rsaEncryption}]
+    algorithms: [{name: rsaEncryption, key_sizes: [2048]}]
   signature_algorithm:
     allowed: [sha256WithRSAEncryption]
   issuer:
