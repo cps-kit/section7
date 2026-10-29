@@ -1596,7 +1596,12 @@ func ValidateProfile(p *Profile) []string {
 		}
 	}
 
-	// Check issuer attributes
+	// Check issuer attributes. The issuer is never empty and its attribute list
+	// is exhaustive, so a profile that lists none describes no certificate.
+	if len(p.Requirements.Issuer.Attributes) == 0 {
+		errs = append(errs,
+			"requirements.issuer.attributes is missing; a profile must list the issuer attributes it permits")
+	}
 	for fieldName := range p.Requirements.Issuer.Attributes {
 		if !IsSupportedSubjectAttribute(fieldName) {
 			errs = append(errs, fmt.Sprintf("unknown issuer attribute: %q", fieldName))
