@@ -227,6 +227,46 @@ func TestValidateProfileMultipleErrors(t *testing.T) {
 	}
 }
 
+// TestValidateProfileErrorOrderIsStable guards against walking the profile's
+// maps directly, which made the errors for one profile come out in a different
+// order on every run.
+func TestValidateProfileErrorOrderIsStable(t *testing.T) {
+	p := &Profile{
+		Requirements: Requirements{
+			Version:            3,
+			SignatureAlgorithm: SignatureAlgorithm{Allowed: []string{"sha256WithRSAEncryption"}},
+			Issuer:             DistinguishedName{Attributes: map[string]Field{"common_name": {}, "issuer_pet": {}}},
+			Validity:           Validity{MaximumDays: 398},
+			PublicKey:          PublicKey{Algorithms: []KeyAlgorithm{{Name: "rsaEncryption"}}},
+			Subject: DistinguishedName{
+				Attributes: map[string]Field{"phone_number": {}, "favourite_pet": {}},
+			},
+			Extensions: map[string]Extension{
+				"made_up_extension":   {},
+				"another_made_up_ext": {},
+			},
+		},
+	}
+
+	want := ValidateProfile(p)
+	order := []string{"issuer_pet", "favourite_pet", "phone_number", "another_made_up_ext", "made_up_extension"}
+	joined := strings.Join(want, "\n")
+	pos := 0
+	for _, name := range order {
+		i := strings.Index(joined[pos:], name)
+		if i == -1 {
+			t.Fatalf("errors should mention %v in that order, got: %v", order, want)
+		}
+		pos += i + len(name)
+	}
+
+	for i := 0; i < 20; i++ {
+		if got := ValidateProfile(p); strings.Join(got, "\n") != joined {
+			t.Fatalf("error order changed between runs:\n%v\n%v", want, got)
+		}
+	}
+}
+
 // TestValidateProfileRequiresValidity tests that a profile must state the
 // validity period it permits. Unlike a list of permitted values, a bound that
 // is left out cannot be read strictly; it would simply go unchecked.
