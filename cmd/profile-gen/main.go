@@ -86,12 +86,8 @@ func renderAttributeTable(attrs map[string]section7.Field) string {
 		}
 	}
 
-	names := make([]string, 0, len(attrs))
-	for name := range attrs {
-		names = append(names, name)
-	}
 	// Listed in the order a conforming certificate encodes them.
-	section7.SortAttributeKeys(names)
+	names := section7.AttributeNames(attrs)
 
 	if hasLength {
 		sb.WriteString("| Attribute | Short Name | OID | Required | Min Length | Max Length |\n")
