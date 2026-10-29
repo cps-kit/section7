@@ -259,7 +259,11 @@ func TestRenderProfileFollowsCertificateOrder(t *testing.T) {
 
 	inOrder("sections",
 		"### Serial Number", "### Signature Algorithm", "### Issuer DN Requirements",
-		"### Validity", "### Subject DN Requirements", "### Subject Public Key", "### Extensions")
+		"### Validity", "### Subject DN Requirements", "### Subject Public Key",
+		"### Unique Identifiers", "### Extensions")
+	if !strings.Contains(rendered, "The `issuerUniqueID` and `subjectUniqueID` fields MUST NOT be present.") {
+		t.Errorf("the unique identifier fields should be forbidden in prose, got:\n%s", rendered)
+	}
 	inOrder("subject attributes",
 		"### Subject DN Requirements", "| countryName |", "| organizationName |", "| commonName |")
 	if !strings.Contains(rendered, "MUST be present: `countryName`, `organizationName`, `commonName`.") {

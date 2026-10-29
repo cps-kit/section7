@@ -471,6 +471,33 @@ func CertPublicKey(cert *x509.Certificate) (PublicKeyInfo, bool) {
 	}
 }
 
+// CertUniqueIDs reports whether the certificate carries issuerUniqueID and
+// subjectUniqueID, which crypto/x509 parses past without exposing. The third
+// result reports whether the TBSCertificate could be read.
+func CertUniqueIDs(cert *x509.Certificate) (issuer, subject, ok bool) {
+	var tbs asn1.RawValue
+	if _, err := asn1.Unmarshal(cert.RawTBSCertificate, &tbs); err != nil {
+		return false, false, false
+	}
+	// Within the TBSCertificate, [1] and [2] are always the unique identifiers.
+	for rest := tbs.Bytes; len(rest) > 0; {
+		var field asn1.RawValue
+		var err error
+		if rest, err = asn1.Unmarshal(rest, &field); err != nil {
+			return false, false, false
+		}
+		if field.Class == asn1.ClassContextSpecific {
+			switch field.Tag {
+			case 1:
+				issuer = true
+			case 2:
+				subject = true
+			}
+		}
+	}
+	return issuer, subject, true
+}
+
 // ---------- Extension helpers ----------
 
 // ekuOIDs maps the extended key usages Go parses natively to their OIDs, so
@@ -910,6 +937,19 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 
 	// ---- Subject public key ----
 	findings = append(findings, publicKeyFindings(cert, p.Requirements.PublicKey)...)
+
+	// ---- Unique identifiers ----
+	// The Baseline Requirements forbid both fields, whatever the profile says.
+	if issuerUID, subjectUID, ok := CertUniqueIDs(cert); !ok {
+		add(Error, "UNIQUEID-001", "the TBSCertificate could not be read to check for unique identifiers")
+	} else {
+		if issuerUID {
+			add(Error, "UNIQUEID-001", "certificate contains issuerUniqueID, which is not permitted")
+		}
+		if subjectUID {
+			add(Error, "UNIQUEID-001", "certificate contains subjectUniqueID, which is not permitted")
+		}
+	}
 
 	// ---- Extensions ----
 	for _, extName := range ExtensionNames(p.Requirements.Extensions) {

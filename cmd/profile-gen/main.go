@@ -608,6 +608,10 @@ func renderProfile(p section7.Profile, raw map[string]interface{}) string {
 
 	sb.WriteString(renderPublicKey(p.Requirements.PublicKey))
 
+	// Unique identifiers: forbidden by the Baseline Requirements, so not a profile setting.
+	sb.WriteString("### Unique Identifiers\n\n")
+	sb.WriteString("The `issuerUniqueID` and `subjectUniqueID` fields MUST NOT be present.\n\n")
+
 	// Extensions
 	if len(p.Requirements.Extensions) > 0 {
 		sb.WriteString("### Extensions\n\n")
