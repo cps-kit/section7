@@ -836,9 +836,25 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 			add(Info, "POLICY-001", fmt.Sprintf(
 				"certificate contains the profile Policy OID %s", oid))
 		} else {
+			found := "none"
+			if oids := CertPolicyOIDs(cert); len(oids) > 0 {
+				found = strings.Join(oids, ", ")
+			}
 			add(Error, "POLICY-001", fmt.Sprintf(
-				"certificate does not contain the required Policy OID %s (found: %s)",
-				oid, strings.Join(CertPolicyOIDs(cert), ", ")))
+				"certificate does not contain the required Policy OID %s (found: %s)", oid, found))
+		}
+	}
+
+	// ---- Profile version ----
+	if v := p.Profile.Version; !v.IsZero() {
+		if v.After(cert.NotBefore) {
+			add(Error, "PROFILE-002", fmt.Sprintf(
+				"profile version %s is later than the certificate's notBefore %s",
+				v.Format(time.RFC3339Nano), cert.NotBefore.Format(time.RFC3339)))
+		} else {
+			add(Info, "PROFILE-002", fmt.Sprintf(
+				"profile version %s is not later than the certificate's notBefore %s OK",
+				v.Format(time.RFC3339Nano), cert.NotBefore.Format(time.RFC3339)))
 		}
 	}
 

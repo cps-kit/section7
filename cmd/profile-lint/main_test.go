@@ -1688,6 +1688,142 @@ func TestLintPolicyUnderArcAccepted(t *testing.T) {
 	}
 }
 
+// TestSelectProfilesByVersion verifies that only profiles whose version
+// is not later than the certificate's notBefore are selected.
+func TestSelectProfilesByVersion(t *testing.T) {
+	cert := createCertWithPolicies(t, "2.23.140.1.2.2")
+	profile := func(oid string, version time.Time) *section7.Loaded {
+		return &section7.Loaded{Profile: section7.Profile{Profile: section7.Meta{
+			RecognizedBy: section7.RecognizedBy{PolicyOID: oid},
+			Version:      section7.ProfileVersion{Time: version},
+		}}}
+	}
+	past := cert.NotBefore.Add(-time.Hour)
+	future := cert.NotBefore.Add(time.Hour)
+
+	tests := []struct {
+		name     string
+		profiles map[string]*section7.Loaded
+		selected []string
+		ruleID   string
+	}{
+		{"older version", map[string]*section7.Loaded{
+			"a.yaml": profile("2.23.140.1.2.2", past),
+			"b.yaml": profile("2.23.140.1.2.2", future),
+			"c.yaml": profile("2.23.140.1.2.3", past),
+		}, []string{"a.yaml"}, ""},
+		{"no version", map[string]*section7.Loaded{
+			"a.yaml": profile("2.23.140.1.2.2", time.Time{}),
+		}, []string{"a.yaml"}, ""},
+		{"version equals notBefore", map[string]*section7.Loaded{
+			"a.yaml": profile("2.23.140.1.2.2", cert.NotBefore),
+		}, []string{"a.yaml"}, ""},
+		{"only newer versions", map[string]*section7.Loaded{
+			"a.yaml": profile("2.23.140.1.2.2", future),
+		}, nil, "PROFILE-002"},
+		{"no policy match", map[string]*section7.Loaded{
+			"a.yaml": profile("2.23.140.1.2.3", past),
+		}, nil, "PROFILE-001"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			selected, f := selectProfiles(cert, tt.profiles)
+			if strings.Join(selected, ",") != strings.Join(tt.selected, ",") {
+				t.Errorf("selected %v, want %v", selected, tt.selected)
+			}
+			switch {
+			case tt.ruleID == "" && f != nil:
+				t.Errorf("unexpected finding %v", f)
+			case tt.ruleID != "" && (f == nil || f.RuleID != tt.ruleID || f.Severity != Error):
+				t.Errorf("got finding %v, want a %s error", f, tt.ruleID)
+			}
+		})
+	}
+}
+
+// TestLintProfileVersion verifies that linting against a profile whose version
+// is later than the certificate's notBefore reports an error.
+func TestLintProfileVersion(t *testing.T) {
+	cert := createCertWithPolicies(t, "2.23.140.1.2.2")
+
+	tests := []struct {
+		name     string
+		version  time.Time
+		severity Severity
+	}{
+		{"older version", cert.NotBefore.Add(-time.Hour), Info},
+		{"version equals notBefore", cert.NotBefore, Info},
+		{"newer version", cert.NotBefore.Add(time.Hour), Error},
+		{"no version", time.Time{}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := section7.Profile{Profile: section7.Meta{Version: section7.ProfileVersion{Time: tt.version}}}
+			var got Severity
+			for _, f := range lint(cert, p) {
+				if f.RuleID == "PROFILE-002" {
+					got = f.Severity
+				}
+			}
+			if got != tt.severity {
+				t.Errorf("PROFILE-002 severity %q, want %q", got, tt.severity)
+			}
+		})
+	}
+}
+
+// TestLintPolicyOIDMissingListsFound verifies the POLICY-001 error names the
+// policy OIDs the certificate does carry, or says it carries none.
+func TestLintPolicyOIDMissingListsFound(t *testing.T) {
+	p := section7.Profile{Profile: section7.Meta{
+		Name:         "Test Profile",
+		RecognizedBy: section7.RecognizedBy{PolicyOID: "2.23.140.1.2.2"},
+	}}
+
+	tests := []struct {
+		name  string
+		cert  *x509.Certificate
+		found string
+	}{
+		{"other policies", createCertWithPolicies(t, "2.23.140.1.2.1", "1.2.3.4"), "(found: 2.23.140.1.2.1, 1.2.3.4)"},
+		{"no policies", createParsedTestCert(t, "example.com", "Test Org", "US", nil), "(found: none)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ok := false
+			for _, f := range lint(tt.cert, p) {
+				if f.RuleID == "POLICY-001" && f.Severity == Error && strings.HasSuffix(f.Message, tt.found) {
+					ok = true
+				}
+			}
+			if !ok {
+				t.Errorf("expected a POLICY-001 error ending %q", tt.found)
+			}
+		})
+	}
+}
+
+// TestUnmatchedFindingListsFound verifies the PROFILE-001 error names the
+// policy OIDs the certificate carries, or says it carries none.
+func TestUnmatchedFindingListsFound(t *testing.T) {
+	tests := []struct {
+		name  string
+		cert  *x509.Certificate
+		found string
+	}{
+		{"other policies", createCertWithPolicies(t, "1.2.3.4", "1.2.3.5"), "(found: 1.2.3.4, 1.2.3.5)"},
+		{"no policies", createParsedTestCert(t, "example.com", "Test Org", "US", nil), "(found: none)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := unmatchedFinding(tt.cert)
+			if f.RuleID != "PROFILE-001" || f.Severity != Error || !strings.HasSuffix(f.Message, tt.found) {
+				t.Errorf("got %v, want a PROFILE-001 error ending %q", f, tt.found)
+			}
+		})
+	}
+}
+
 // TestLintPolicyOutsideArcRejected verifies an unrelated policy is still caught.
 func TestLintPolicyOutsideArcRejected(t *testing.T) {
 	p := policyArcProfile()
