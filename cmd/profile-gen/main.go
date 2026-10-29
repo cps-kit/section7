@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/cps-kit/section7"
 
@@ -533,8 +534,8 @@ func renderProfile(p section7.Profile, raw map[string]interface{}) string {
 	var sb strings.Builder
 
 	heading := "## Certificate Profile: " + p.Profile.Name
-	if v := p.Profile.Version; v > 0 {
-		heading += fmt.Sprintf(" (version %d)", v)
+	if v := p.Profile.Version; !v.IsZero() {
+		heading += fmt.Sprintf(" (version %s)", v.Format(time.RFC3339Nano))
 	}
 	sb.WriteString(heading + "\n\n")
 	sb.WriteString("This profile applies only to Subscriber certificates; CA certificates are exempt from these requirements.\n\n")

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cps-kit/section7"
 )
@@ -68,15 +69,18 @@ func TestRenderProfile(t *testing.T) {
 // heading when the profile records one, and is omitted when it does not.
 func TestRenderProfileVersion(t *testing.T) {
 	p := section7.Profile{
-		Profile:      section7.Meta{Name: "TLS DV Certificate", Version: 2},
+		Profile: section7.Meta{
+			Name:    "TLS DV Certificate",
+			Version: section7.ProfileVersion{Time: time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)},
+		},
 		Requirements: section7.Requirements{Version: 3},
 	}
 	if rendered := renderProfile(p, map[string]interface{}{}); !strings.Contains(rendered,
-		"## Certificate Profile: TLS DV Certificate (version 2)\n") {
+		"## Certificate Profile: TLS DV Certificate (version 2026-10-29T12:00:00Z)\n") {
 		t.Errorf("the profile version should appear in the heading, got:\n%s", rendered)
 	}
 
-	p.Profile.Version = 0
+	p.Profile.Version = section7.ProfileVersion{}
 	if rendered := renderProfile(p, map[string]interface{}{}); !strings.Contains(rendered,
 		"## Certificate Profile: TLS DV Certificate\n") {
 		t.Errorf("an unstated profile version should be left out of the heading, got:\n%s", rendered)

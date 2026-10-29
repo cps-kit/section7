@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestResolvePath tests the ResolvePath function with various paths.
@@ -317,21 +318,24 @@ func TestValidateProfileRequiresValidity(t *testing.T) {
 // ---------- Helpers ----------
 
 // TestVersionSpellings verifies requirements.version accepts only v1, v2 and
-// v3, and profile.version accepts only a positive integer.
+// v3, and profile.version accepts only an RFC 3339 timestamp.
 func TestVersionSpellings(t *testing.T) {
 	tests := []struct {
 		name, profileVersion, certVersion string
 		wantErr                           string
 	}{
-		{"both valid", "7", "v3", ""},
-		{"v1", "1", "v1", ""},
-		{"bare number", "1", "3", "must be v1, v2 or v3"},
-		{"quoted number", "1", `"3"`, "must be v1, v2 or v3"},
-		{"v4", "1", "v4", "must be v1, v2 or v3"},
-		{"profile v-prefix", "v3", "v3", "must be a positive integer"},
-		{"profile float", "1.5", "v3", "must be a positive integer"},
-		{"profile quoted", `"2"`, "v3", "must be a positive integer"},
-		{"profile zero", "0", "v3", "must be a positive integer"},
+		{"both valid", "2026-10-29T12:00:00Z", "v3", ""},
+		{"v1", "2026-10-29T12:00:00Z", "v1", ""},
+		{"bare number", "2026-10-29T12:00:00Z", "3", "must be v1, v2 or v3"},
+		{"quoted number", "2026-10-29T12:00:00Z", `"3"`, "must be v1, v2 or v3"},
+		{"v4", "2026-10-29T12:00:00Z", "v4", "must be v1, v2 or v3"},
+		{"profile offset", "2026-10-29T12:00:00+01:00", "v3", ""},
+		{"profile fraction", "2026-10-29T12:00:00.5Z", "v3", ""},
+		{"profile quoted", `"2026-10-29T12:00:00Z"`, "v3", ""},
+		{"profile bare date", "2026-10-29", "v3", "must be an RFC 3339 timestamp"},
+		{"profile no zone", "2026-10-29T12:00:00", "v3", "must be an RFC 3339 timestamp"},
+		{"profile integer", "2", "v3", "must be an RFC 3339 timestamp"},
+		{"profile v-prefix", "v3", "v3", "must be an RFC 3339 timestamp"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1769,7 +1773,7 @@ requirements:
 extends: _base.yaml
 profile:
   name: Child
-  version: 2
+  version: 2026-10-29T12:00:00Z
 requirements:
   validity:
     maximum_days: 200
@@ -1800,7 +1804,7 @@ requirements:
 	if req.Version != 3 {
 		t.Errorf("requirements.version should be inherited from the base, got %v", req.Version)
 	}
-	if loaded.Profile.Profile.Version != 2 {
+	if want := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC); !loaded.Profile.Profile.Version.Equal(want) {
 		t.Errorf("profile.version should be the profile's own revision, got %v", loaded.Profile.Profile.Version)
 	}
 	for _, attr := range []string{"country_name", "common_name"} {
@@ -1915,7 +1919,7 @@ func TestLoadDirSkipsFragments(t *testing.T) {
 	dir := t.TempDir()
 	for name, content := range map[string]string{
 		"_base.yaml": "requirements:\n  validity:\n    maximum_days: 200\n",
-		"leaf.yaml":  "extends: _base.yaml\nprofile:\n  name: Leaf\n  version: 3\n",
+		"leaf.yaml":  "extends: _base.yaml\nprofile:\n  name: Leaf\n",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			t.Fatalf("writing %s: %v", name, err)
