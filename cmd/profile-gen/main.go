@@ -532,7 +532,11 @@ func backtickAll(values []string) []string {
 func renderProfile(p section7.Profile, raw map[string]interface{}) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("## Certificate Profile: %s (X.509v%d)\n\n", p.Profile.Name, p.Requirements.Version))
+	heading := "## Certificate Profile: " + p.Profile.Name
+	if v := p.Profile.Version; v > 0 {
+		heading += fmt.Sprintf(" (version %d)", v)
+	}
+	sb.WriteString(heading + "\n\n")
 	sb.WriteString("This profile applies only to Subscriber certificates; CA certificates are exempt from these requirements.\n\n")
 
 	// Recognition
@@ -544,6 +548,12 @@ func renderProfile(p section7.Profile, raw map[string]interface{}) string {
 
 	// The sections below follow the field order of the TBSCertificate, so that
 	// the document can be read alongside a certificate from top to bottom.
+
+	// Version
+	if v := p.Requirements.Version; v > 0 {
+		sb.WriteString("### Version\n\n")
+		sb.WriteString(fmt.Sprintf("The certificate MUST be an X.509v%d certificate.\n\n", v))
+	}
 
 	// Serial number
 	if sn := p.Requirements.SerialNumber; sn.Declared {

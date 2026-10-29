@@ -41,8 +41,11 @@ func TestRenderProfile(t *testing.T) {
 	rendered := renderProfile(p, raw)
 
 	// Check that key sections are present
-	if !strings.Contains(rendered, "## Certificate Profile: Test Profile (X.509v3)") {
+	if !strings.Contains(rendered, "## Certificate Profile: Test Profile\n") {
 		t.Error("rendered profile should contain profile name")
+	}
+	if !strings.Contains(rendered, "### Version\n\nThe certificate MUST be an X.509v3 certificate.") {
+		t.Errorf("rendered profile should state the certificate version, got:\n%s", rendered)
 	}
 	if !strings.Contains(rendered, "### Validity") {
 		t.Error("rendered profile should contain Validity section")
@@ -58,6 +61,25 @@ func TestRenderProfile(t *testing.T) {
 	}
 	if !strings.Contains(rendered, "Test rule with Test Profile") {
 		t.Error("rendered profile should have interpolated rule text")
+	}
+}
+
+// TestRenderProfileVersion checks the profile's own revision appears in the
+// heading when the profile records one, and is omitted when it does not.
+func TestRenderProfileVersion(t *testing.T) {
+	p := section7.Profile{
+		Profile:      section7.Meta{Name: "TLS DV Certificate", Version: 2},
+		Requirements: section7.Requirements{Version: 3},
+	}
+	if rendered := renderProfile(p, map[string]interface{}{}); !strings.Contains(rendered,
+		"## Certificate Profile: TLS DV Certificate (version 2)\n") {
+		t.Errorf("the profile version should appear in the heading, got:\n%s", rendered)
+	}
+
+	p.Profile.Version = 0
+	if rendered := renderProfile(p, map[string]interface{}{}); !strings.Contains(rendered,
+		"## Certificate Profile: TLS DV Certificate\n") {
+		t.Errorf("an unstated profile version should be left out of the heading, got:\n%s", rendered)
 	}
 }
 
@@ -258,7 +280,7 @@ func TestRenderProfileFollowsCertificateOrder(t *testing.T) {
 	}
 
 	inOrder("sections",
-		"### Serial Number", "### Signature Algorithm", "### Issuer DN Requirements",
+		"### Version", "### Serial Number", "### Signature Algorithm", "### Issuer DN Requirements",
 		"### Validity", "### Subject DN Requirements", "### Subject Public Key",
 		"### Unique Identifiers", "### Extensions")
 	if !strings.Contains(rendered, "The `issuerUniqueID` and `subjectUniqueID` fields MUST NOT be present.") {
