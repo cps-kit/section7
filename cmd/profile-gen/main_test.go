@@ -350,6 +350,8 @@ requirements:
     algorithms: [{name: rsaEncryption}]
   signature_algorithm:
     allowed: [sha256WithRSAEncryption]
+  issuer:
+    attributes: {common_name: {}}
 profile:
   name: Order Test
 `

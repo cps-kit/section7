@@ -112,6 +112,7 @@ func TestValidateProfileValid(t *testing.T) {
 		Requirements: Requirements{
 			Version:            3,
 			SignatureAlgorithm: SignatureAlgorithm{Allowed: []string{"sha256WithRSAEncryption"}},
+			Issuer:             DistinguishedName{Attributes: map[string]Field{"common_name": {}}},
 			Validity:           Validity{MaximumDays: 398},
 			PublicKey:          PublicKey{Algorithms: []KeyAlgorithm{{Name: "rsaEncryption"}}},
 			Subject: DistinguishedName{
@@ -204,6 +205,7 @@ func TestValidateProfileMultipleErrors(t *testing.T) {
 		Requirements: Requirements{
 			Version:            3,
 			SignatureAlgorithm: SignatureAlgorithm{Allowed: []string{"sha256WithRSAEncryption"}},
+			Issuer:             DistinguishedName{Attributes: map[string]Field{"common_name": {}}},
 			Validity:           Validity{MaximumDays: 398},
 			PublicKey:          PublicKey{Algorithms: []KeyAlgorithm{{Name: "rsaEncryption"}}},
 			Subject: DistinguishedName{
@@ -293,6 +295,7 @@ func TestValidateProfileRequiresVersion(t *testing.T) {
 		Requirements: Requirements{
 			Validity:           Validity{MaximumDays: 398},
 			SignatureAlgorithm: SignatureAlgorithm{Allowed: []string{"sha256WithRSAEncryption"}},
+			Issuer:             DistinguishedName{Attributes: map[string]Field{"common_name": {}}},
 			PublicKey:          PublicKey{Algorithms: []KeyAlgorithm{{Name: "rsaEncryption"}}},
 		},
 	})
@@ -301,24 +304,25 @@ func TestValidateProfileRequiresVersion(t *testing.T) {
 	}
 }
 
-// TestValidateProfileRequiresAlgorithms verifies a profile must list the
-// signature and public key algorithms it permits, since an empty list would
-// describe no certificate at all.
-func TestValidateProfileRequiresAlgorithms(t *testing.T) {
+// TestValidateProfileRequiresPermittedLists verifies a profile must list the
+// signature algorithms, issuer attributes and public key algorithms it permits,
+// since an empty list would describe no certificate at all.
+func TestValidateProfileRequiresPermittedLists(t *testing.T) {
 	errs := ValidateProfile(&Profile{
 		Requirements: Requirements{Version: 3, Validity: Validity{MaximumDays: 398}},
 	})
 	joined := strings.Join(errs, "\n")
 	for _, want := range []string{
 		"requirements.signature_algorithm.allowed is missing",
+		"requirements.issuer.attributes is missing",
 		"requirements.public_key.algorithms is missing",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("errors should include %q, got: %v", want, errs)
 		}
 	}
-	if len(errs) != 2 {
-		t.Errorf("only the two missing lists should be reported, got: %v", errs)
+	if len(errs) != 3 {
+		t.Errorf("only the three missing lists should be reported, got: %v", errs)
 	}
 }
 
@@ -348,6 +352,8 @@ requirements:
   version: v3
   signature_algorithm:
     allowed: [sha256WithRSAEncryption]
+  issuer:
+    attributes: {common_name: {}}
   public_key:
     algorithms: [{name: rsaEncryption}]
   validity:
@@ -382,6 +388,8 @@ requirements:
   version: v3
   signature_algorithm:
     allowed: [sha256WithRSAEncryption]
+  issuer:
+    attributes: {common_name: {}}
   public_key:
     algorithms: [{name: rsaEncryption}]
   validity:
@@ -510,6 +518,8 @@ requirements:
   version: v3
   signature_algorithm:
     allowed: [sha256WithRSAEncryption]
+  issuer:
+    attributes: {common_name: {}}
   public_key:
     algorithms: [{name: rsaEncryption}]
   validity:
@@ -780,6 +790,8 @@ requirements:
   version: v3
   signature_algorithm:
     allowed: [sha256WithRSAEncryption]
+  issuer:
+    attributes: {common_name: {}}
   public_key:
     algorithms: [{name: rsaEncryption}]
   validity:
@@ -866,6 +878,8 @@ requirements:
   version: v3
   signature_algorithm:
     allowed: [sha256WithRSAEncryption]
+  issuer:
+    attributes: {common_name: {}}
   public_key:
     algorithms: [{name: rsaEncryption}]
   validity:
@@ -898,6 +912,8 @@ requirements:
   version: v3
   signature_algorithm:
     allowed: [sha256WithRSAEncryption]
+  issuer:
+    attributes: {common_name: {}}
   public_key:
     algorithms: [{name: rsaEncryption}]
   validity:
@@ -975,6 +991,8 @@ requirements:
   version: v3
   signature_algorithm:
     allowed: [sha256WithRSAEncryption]
+  issuer:
+    attributes: {common_name: {}}
   public_key:
     algorithms: [{name: rsaEncryption}]
   validity:
@@ -1072,6 +1090,8 @@ requirements:
   version: v3
   signature_algorithm:
     allowed: [sha256WithRSAEncryption]
+  issuer:
+    attributes: {common_name: {}}
   public_key:
     algorithms: [{name: rsaEncryption}]
   validity:
@@ -1224,6 +1244,8 @@ requirements:
   version: v3
   signature_algorithm:
     allowed: [sha256WithRSAEncryption]
+  issuer:
+    attributes: {common_name: {}}
   public_key:
     algorithms: [{name: rsaEncryption}]
   validity:
@@ -1357,6 +1379,8 @@ requirements:
   version: v3
   signature_algorithm:
     allowed: [sha256WithRSAEncryption]
+  issuer:
+    attributes: {common_name: {}}
   public_key:
     algorithms: [{name: rsaEncryption}]
   validity:
@@ -1517,6 +1541,8 @@ profile:
   name: Algorithms
 requirements:
   version: v3
+  issuer:
+    attributes: {common_name: {}}
   validity:
     maximum_days: 398
   signature_algorithm:
@@ -1659,6 +1685,8 @@ requirements:
   version: v3
   signature_algorithm:
     allowed: [sha256WithRSAEncryption]
+  issuer:
+    attributes: {common_name: {}}
   public_key:
     algorithms: [{name: rsaEncryption}]
   validity:
