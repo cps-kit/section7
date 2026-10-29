@@ -546,17 +546,29 @@ func EKUDisplay(oid string) string {
 	return oid
 }
 
-var keyUsageNames = map[string]x509.KeyUsage{
-	"digitalSignature":  x509.KeyUsageDigitalSignature,
-	"contentCommitment": x509.KeyUsageContentCommitment,
-	"keyEncipherment":   x509.KeyUsageKeyEncipherment,
-	"dataEncipherment":  x509.KeyUsageDataEncipherment,
-	"keyAgreement":      x509.KeyUsageKeyAgreement,
-	"keyCertSign":       x509.KeyUsageCertSign,
-	"cRLSign":           x509.KeyUsageCRLSign,
-	"encipherOnly":      x509.KeyUsageEncipherOnly,
-	"decipherOnly":      x509.KeyUsageDecipherOnly,
+// keyUsageBits lists the key usages in the bit order of RFC 5280.
+var keyUsageBits = []struct {
+	name string
+	bit  x509.KeyUsage
+}{
+	{"digitalSignature", x509.KeyUsageDigitalSignature},
+	{"contentCommitment", x509.KeyUsageContentCommitment},
+	{"keyEncipherment", x509.KeyUsageKeyEncipherment},
+	{"dataEncipherment", x509.KeyUsageDataEncipherment},
+	{"keyAgreement", x509.KeyUsageKeyAgreement},
+	{"keyCertSign", x509.KeyUsageCertSign},
+	{"cRLSign", x509.KeyUsageCRLSign},
+	{"encipherOnly", x509.KeyUsageEncipherOnly},
+	{"decipherOnly", x509.KeyUsageDecipherOnly},
 }
+
+var keyUsageNames = func() map[string]x509.KeyUsage {
+	m := make(map[string]x509.KeyUsage, len(keyUsageBits))
+	for _, ku := range keyUsageBits {
+		m[ku.name] = ku.bit
+	}
+	return m
+}()
 
 // extIsCritical reports whether a named extension is marked critical, and
 // whether it is present in the certificate at all. The extension may be named
@@ -1298,10 +1310,10 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 			for _, name := range append(append([]string{}, req.RequiredValues...), req.OptionalValues...) {
 				allowed |= keyUsageNames[name]
 			}
-			for name, bit := range keyUsageNames {
-				if cert.KeyUsage&bit != 0 && allowed&bit == 0 {
+			for _, ku := range keyUsageBits {
+				if cert.KeyUsage&ku.bit != 0 && allowed&ku.bit == 0 {
 					add(Error, "EXT-008", fmt.Sprintf(
-						"KeyUsage '%s' is present but not listed as required or optional in the profile", name))
+						"KeyUsage '%s' is present but not listed as required or optional in the profile", ku.name))
 				}
 			}
 		}
