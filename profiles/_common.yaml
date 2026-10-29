@@ -9,12 +9,36 @@
 requirements:
   version: v3
 
+  serial_number:
+    required: true
+    maximum_bit_length: 159
+    minimum_octets: 8
+    textual_requirement: "MUST be a non-sequential number greater than zero (0) and less than 2¹⁵⁹ containing at least 64 bits of output from a CSPRNG."
+
   signature_algorithm:
     allowed:
       - sha256WithRSAEncryption
       - sha384WithRSAEncryption
       - ecdsa-with-SHA256
       - ecdsa-with-SHA384
+
+  issuer:
+    attributes:
+      country_name:
+        required: true
+        length:
+          min: 2
+          max: 2
+      organization_name:
+        required: true
+        length:
+          min: 1
+          max: 64
+      common_name:
+        required: true
+        length:
+          min: 1
+          max: 64
 
   public_key:
     algorithms:
@@ -27,30 +51,6 @@ requirements:
         curves:
           - P-256
           - P-384
-
-  serial_number:
-    required: true
-    maximum_bit_length: 159
-    minimum_octets: 8
-    textual_requirement: "MUST be a non-sequential number greater than zero (0) and less than 2¹⁵⁹ containing at least 64 bits of output from a CSPRNG."
-
-  issuer:
-    attributes:
-      common_name:
-        required: true
-        length:
-          min: 1
-          max: 64
-      organization_name:
-        required: true
-        length:
-          min: 1
-          max: 64
-      country_name:
-        required: true
-        length:
-          min: 2
-          max: 2
 
   extensions:
     certificate_policies:
