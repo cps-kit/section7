@@ -1573,6 +1573,70 @@ requirements:
 	}
 }
 
+// TestSerialNumberRetiredKeysRejected verifies the retired serial_number keys
+// are reported rather than silently ignored.
+func TestSerialNumberRetiredKeysRejected(t *testing.T) {
+	loaded := loadYAML(t, `
+profile:
+  name: Retired Serial Number Keys
+requirements:
+  serial_number:
+    required: true
+    minimum_octets: 8
+`)
+
+	errs := loaded.Validate()
+	for _, key := range []string{"required", "minimum_octets"} {
+		want := `unrecognized key "` + key + `" in requirements.serial_number`
+		found := false
+		for _, err := range errs {
+			if strings.Contains(err, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("serial_number %s should be reported, got: %v", key, errs)
+		}
+	}
+}
+
+// TestSerialNumberBitLengthsValidated verifies minimum_bit_length is at least
+// 1, maximum_bit_length is between 1 and 159, and the minimum does not exceed
+// the maximum, defaults included.
+func TestSerialNumberBitLengthsValidated(t *testing.T) {
+	tests := []struct {
+		name  string
+		block string
+		want  string
+	}{
+		{"minimum zero", "minimum_bit_length: 0", "must be at least 1"},
+		{"maximum zero", "maximum_bit_length: 0", "must be between 1 and 159"},
+		{"maximum above 159", "maximum_bit_length: 160", "must be between 1 and 159"},
+		{"above maximum", "minimum_bit_length: 100\n    maximum_bit_length: 99", "exceeds maximum_bit_length"},
+		{"above default maximum", "minimum_bit_length: 160", "exceeds maximum_bit_length 159"},
+		{"below default minimum", "maximum_bit_length: 1", ""},
+		{"valid", "minimum_bit_length: 64\n    maximum_bit_length: 159", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loaded := loadYAML(t, "profile:\n  name: Serial\nrequirements:\n  serial_number:\n    "+tt.block+"\n")
+			var got []string
+			for _, err := range loaded.Validate() {
+				if strings.Contains(err, "_bit_length") {
+					got = append(got, err)
+				}
+			}
+			switch {
+			case tt.want == "" && len(got) > 0:
+				t.Errorf("unexpected errors: %v", got)
+			case tt.want != "" && (len(got) != 1 || !strings.Contains(got[0], tt.want)):
+				t.Errorf("got %v, want one error containing %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestSubjectUnknownAttributeKeyRejected verifies unknown keys inside an
 // attribute are caught at the new, deeper path.
 func TestSubjectUnknownAttributeKeyRejected(t *testing.T) {

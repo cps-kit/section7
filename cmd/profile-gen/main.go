@@ -557,18 +557,14 @@ func renderProfile(p section7.Profile, raw map[string]interface{}) string {
 	}
 
 	// Serial number
-	if sn := p.Requirements.SerialNumber; sn.Declared {
-		sb.WriteString("### Serial Number\n\n")
-		if sn.Required {
-			sb.WriteString("The certificate serial number MUST be present.\n\n")
-		}
-		if sn.TextualRequirement != "" {
-			// Reproduced verbatim from the profile: these requirements cannot
-			// be verified by inspecting a certificate alone.
-			sb.WriteString("The serial number ")
-			sb.WriteString(sn.TextualRequirement)
-			sb.WriteString("\n\n")
-		}
+	sb.WriteString("### Serial Number\n\n")
+	sb.WriteString("The serial number MUST be a positive integer of no more than 20 octets.\n\n")
+	if sn := p.Requirements.SerialNumber; sn.TextualRequirement != "" {
+		// Reproduced verbatim from the profile: these requirements cannot
+		// be verified by inspecting a certificate alone.
+		sb.WriteString("The serial number ")
+		sb.WriteString(sn.TextualRequirement)
+		sb.WriteString("\n\n")
 	}
 
 	sb.WriteString(renderSignatureAlgorithm(p.Requirements.SignatureAlgorithm))

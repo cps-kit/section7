@@ -871,39 +871,29 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 	}
 
 	// ---- Serial number ----
-	if sn := p.Requirements.SerialNumber; sn.Required {
-		switch {
-		case cert.SerialNumber == nil || cert.SerialNumber.Sign() == 0:
-			add(Error, "SERIAL-001", "serial number is required but is absent or zero")
-		case cert.SerialNumber.Sign() < 0:
-			add(Error, "SERIAL-001", fmt.Sprintf(
-				"serial number must be greater than zero, got %s", cert.SerialNumber))
-		case len(cert.SerialNumber.Bytes()) > 20:
-			// RFC 5280 limits the serial number to 20 octets.
-			add(Error, "SERIAL-001", fmt.Sprintf(
-				"serial number must not exceed 20 octets, got %d", len(cert.SerialNumber.Bytes())))
-		default:
-			// All mandatory checks passed; now verify profile-specified constraints.
-			snLen := len(cert.SerialNumber.Bytes())
-			bitLength := cert.SerialNumber.BitLen()
-
-			// Check: maximum bit length constraint (if specified in profile)
-			if sn.MaximumBitLength > 0 && bitLength > sn.MaximumBitLength {
-				add(Warning, "SERIAL-002", fmt.Sprintf(
-					"serial number exceeds the profile limit of 2^%d (bit length: %d > %d)",
-					sn.MaximumBitLength, bitLength, sn.MaximumBitLength))
-			}
-
-			// Check: minimum octets constraint (if specified in profile)
-			if sn.MinimumOctets > 0 && snLen < sn.MinimumOctets {
-				add(Warning, "SERIAL-003", fmt.Sprintf(
-					"serial number should contain at least %d octets (%d bits) per profile "+
-						"(actual: %d octets)", sn.MinimumOctets, sn.MinimumOctets*8, snLen))
-			}
-
-			add(Info, "SERIAL-001", fmt.Sprintf(
-				"serial number OK (%d octets, %d bits)", snLen, bitLength))
-		}
+	// RFC 5280 4.1.2.2 applies whatever the profile says.
+	sn := p.Requirements.SerialNumber
+	serial := cert.SerialNumber
+	bitLength := serial.BitLen()
+	// Octets of the DER INTEGER, including any leading zero for the sign.
+	snLen := bitLength/8 + 1
+	switch {
+	case serial.Sign() <= 0:
+		add(Error, "SERIAL-001", fmt.Sprintf("serial number must be greater than zero, got %s", serial))
+	case snLen > 20:
+		add(Error, "SERIAL-001", fmt.Sprintf("serial number must not exceed 20 octets, got %d", snLen))
+	default:
+		add(Info, "SERIAL-001", fmt.Sprintf("serial number OK (%d octets, %d bits)", snLen, bitLength))
+	}
+	if maxBits := sn.MaximumBits(); bitLength > maxBits {
+		add(Error, "SERIAL-002", fmt.Sprintf(
+			"serial number exceeds the profile limit of 2^%d (bit length: %d > %d)",
+			maxBits, bitLength, maxBits))
+	}
+	if minBits := sn.MinimumBits(); serial.Sign() > 0 && bitLength < minBits {
+		add(Error, "SERIAL-003", fmt.Sprintf(
+			"serial number is shorter than the profile minimum of %d bits (bit length: %d < %d)",
+			minBits, bitLength, minBits))
 	}
 
 	// ---- Signature algorithm ----

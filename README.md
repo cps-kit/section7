@@ -45,17 +45,17 @@ requirements:
 ```yaml
 requirements:
   serial_number:
-    required: true
-    minimum_octets: 8
+    minimum_bit_length: 1
     maximum_bit_length: 159
 ```
 
-The linter supports:
+The linter always applies RFC 5280: the serial number must be greater than zero and its DER encoding must not exceed 20 octets. The optional block adds:
 
-- `requirements.serial_number.required`
-- `requirements.serial_number.maximum_bit_length`
-- `requirements.serial_number.minimum_octets`
+- `requirements.serial_number.minimum_bit_length` (default 1)
+- `requirements.serial_number.maximum_bit_length` (default 159, which is also the most it can be: a positive INTEGER needs a leading zero bit, so 20 octets hold at most 159 bits)
 - `requirements.serial_number.textual_requirement`
+
+CSPRNG output can begin with zero bits, so a serial number carrying 64 bits of it can be shorter than 64 bits, and rejecting such values would itself reduce the entropy. State entropy requirements in `textual_requirement` rather than as a `minimum_bit_length`.
 
 ### Signature algorithm
 
