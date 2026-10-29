@@ -1957,6 +1957,15 @@ func validatePublicKey(pk PublicKey) []string {
 		}
 
 		isEC := oid == ECPublicKeyOID
+		isRSA := oid == KeyAlgorithmInfo["rsaEncryption"].OID || oid == KeyAlgorithmInfo["id-RSASSA-PSS"].OID
+		if isEC && len(alg.Curves) == 0 {
+			errs = append(errs, fmt.Sprintf(
+				"%s: an elliptic curve key must list the 'curves' it permits", path))
+		}
+		if isRSA && len(alg.KeySizes) == 0 {
+			errs = append(errs, fmt.Sprintf(
+				"%s: an RSA key must list the 'key_sizes' it permits", path))
+		}
 		if len(alg.Curves) > 0 && !isEC {
 			errs = append(errs, fmt.Sprintf(
 				"%s: algorithm %q is not an elliptic curve algorithm and does not take 'curves'", path, alg.Name))

@@ -165,7 +165,7 @@ requirements:
           - P-256
 ```
 
-The list is exhaustive, and a profile that lists none permits none. `name` may be a well-known name (`rsaEncryption`, `id-RSASSA-PSS`, `id-ecPublicKey`, `id-Ed25519`, `id-Ed448`) or a raw OID. `key_sizes` applies to RSA keys and `curves` to elliptic curve keys; curves may be written as `P-256`, `secp256r1`, `prime256v1` or `nistp256`, and likewise for P-384 and P-521.
+The list is exhaustive, and a profile that lists none permits none. `name` may be a well-known name (`rsaEncryption`, `id-RSASSA-PSS`, `id-ecPublicKey`, `id-Ed25519`, `id-Ed448`) or a raw OID. `key_sizes` applies to RSA keys and `curves` to elliptic curve keys; both are required for those algorithms and are exhaustive in the same way. Curves may be written as `P-256`, `secp256r1`, `prime256v1` or `nistp256`, and likewise for P-384 and P-521.
 
 ### Unique identifiers
 

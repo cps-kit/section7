@@ -692,7 +692,8 @@ func publicKeyFindings(cert *x509.Certificate, req PublicKey) []Finding {
 
 		add(Info, "PUBKEY-001", fmt.Sprintf("public key algorithm %s OK", display))
 
-		if len(alg.KeySizes) > 0 {
+		// Sizes and curves are exhaustive too: an empty list permits none.
+		if info.Bits > 0 {
 			permitted := false
 			for _, size := range alg.KeySizes {
 				if size == info.Bits {
@@ -708,7 +709,7 @@ func publicKeyFindings(cert *x509.Certificate, req PublicKey) []Finding {
 			}
 		}
 
-		if len(alg.Curves) > 0 {
+		if info.Curve != "" {
 			permitted := false
 			for _, curve := range alg.Curves {
 				if canonical, ok := CanonicalCurve(curve); ok && canonical == info.Curve {
