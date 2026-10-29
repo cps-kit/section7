@@ -1344,6 +1344,100 @@ func TestLintAccessDescriptionsByOID(t *testing.T) {
 	}
 }
 
+// withUniqueIDs re-encodes cert with issuerUniqueID and/or subjectUniqueID
+// inserted before the extensions. crypto/x509 cannot create these fields, and
+// the signature is left stale because parsing does not check it.
+func withUniqueIDs(t *testing.T, cert *x509.Certificate, issuer, subject bool) *x509.Certificate {
+	t.Helper()
+
+	var outer struct {
+		TBS, SignatureAlgorithm, Signature asn1.RawValue
+	}
+	if _, err := asn1.Unmarshal(cert.Raw, &outer); err != nil {
+		t.Fatalf("splitting certificate: %v", err)
+	}
+
+	var body []byte
+	for rest := outer.TBS.Bytes; len(rest) > 0; {
+		var field asn1.RawValue
+		var err error
+		if rest, err = asn1.Unmarshal(rest, &field); err != nil {
+			t.Fatalf("splitting TBSCertificate: %v", err)
+		}
+		if field.Class == asn1.ClassContextSpecific && field.Tag == 3 {
+			// [1] and [2] IMPLICIT UniqueIdentifier: a one-byte BIT STRING.
+			if issuer {
+				body = append(body, 0x81, 0x02, 0x00, 0x01)
+			}
+			if subject {
+				body = append(body, 0x82, 0x02, 0x00, 0x02)
+			}
+		}
+		body = append(body, field.FullBytes...)
+	}
+
+	seq := func(content ...[]byte) []byte {
+		der, err := asn1.Marshal(asn1.RawValue{
+			Class: asn1.ClassUniversal, Tag: asn1.TagSequence, IsCompound: true, Bytes: bytes.Join(content, nil),
+		})
+		if err != nil {
+			t.Fatalf("encoding SEQUENCE: %v", err)
+		}
+		return der
+	}
+	der := seq(seq(body), outer.SignatureAlgorithm.FullBytes, outer.Signature.FullBytes)
+
+	parsed, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parsing certificate with unique identifiers: %v", err)
+	}
+	return parsed
+}
+
+// TestLintUniqueIdentifiersRejected verifies the Baseline Requirements ban on
+// issuerUniqueID and subjectUniqueID, which applies whatever the profile says.
+func TestLintUniqueIdentifiersRejected(t *testing.T) {
+	p := section7.Profile{Profile: section7.Meta{Name: "Test Profile"}}
+	base := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
+
+	tests := []struct {
+		name            string
+		issuer, subject bool
+		want            []string
+	}{
+		{"neither", false, false, nil},
+		{"issuerUniqueID", true, false, []string{"issuerUniqueID"}},
+		{"subjectUniqueID", false, true, []string{"subjectUniqueID"}},
+		{"both", true, true, []string{"issuerUniqueID", "subjectUniqueID"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cert := base
+			if tt.issuer || tt.subject {
+				cert = withUniqueIDs(t, base, tt.issuer, tt.subject)
+			}
+
+			var got []string
+			for _, f := range lint(cert, p) {
+				if f.RuleID != "UNIQUEID-001" {
+					continue
+				}
+				if f.Severity != Error {
+					t.Errorf("UNIQUEID-001 should be an error, got: %s", f)
+				}
+				for _, field := range []string{"issuerUniqueID", "subjectUniqueID"} {
+					if strings.Contains(f.Message, field) {
+						got = append(got, field)
+					}
+				}
+			}
+			if strings.Join(got, ",") != strings.Join(tt.want, ",") {
+				t.Errorf("reported %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestLintFindingsFollowCertificateOrder verifies findings are reported in the
 // field order of the TBSCertificate, so a report reads alongside a certificate.
 func TestLintFindingsFollowCertificateOrder(t *testing.T) {

@@ -9,7 +9,7 @@ The linter can validate certificates against the profiles.
 
 A profile describes every field and extension a conforming certificate may contain. The lists are exhaustive: anything a profile does not describe is reported as a violation, so a profile that says nothing about extensions permits none. Permitting something is always an explicit act.
 
-The fields a profile can describe follow the TBSCertificate of RFC 5280: the certificate version, the serial number, the signature algorithm, the issuer distinguished name, the validity period, the subject distinguished name, the subject public key algorithm with its key sizes or curves, and the extensions. The generated document, the lint report and `profile-gen -expand` all present them in that order. The optional `profile.version` is a positive integer recording the revision of the profile document itself.
+The fields a profile can describe follow the TBSCertificate of RFC 5280: the certificate version, the serial number, the signature algorithm, the issuer distinguished name, the validity period, the subject distinguished name, the subject public key algorithm with its key sizes or curves, and the extensions. The two remaining fields, `issuerUniqueID` and `subjectUniqueID`, are never permitted (see [Unique identifiers](#unique-identifiers)). The generated document, the lint report and `profile-gen -expand` all present them in that order. The optional `profile.version` is a positive integer recording the revision of the profile document itself.
 
 Files whose name begins with `_` are shared definitions rather than profiles of their own, and are skipped by profile discovery. A profile pulls them in with `extends`, naming one file or several:
 
@@ -166,6 +166,10 @@ requirements:
 ```
 
 The list is exhaustive, and a profile that lists none permits none. `name` may be a well-known name (`rsaEncryption`, `id-RSASSA-PSS`, `id-ecPublicKey`, `id-Ed25519`, `id-Ed448`) or a raw OID. `key_sizes` applies to RSA keys and `curves` to elliptic curve keys; curves may be written as `P-256`, `secp256r1`, `prime256v1` or `nistp256`, and likewise for P-384 and P-521.
+
+### Unique identifiers
+
+The optional `issuerUniqueID` and `subjectUniqueID` fields of the TBSCertificate are forbidden by the Baseline Requirements. There is no profile setting for them: the linter reports `UNIQUEID-001` for any certificate that contains either field, whatever profile it is linted against, and the generated document states that both MUST NOT be present.
 
 ### Extension requirements
 
