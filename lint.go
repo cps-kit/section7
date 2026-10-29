@@ -714,12 +714,7 @@ func dnFindings(dn DistinguishedName, values map[string][]string, presentOIDs []
 		findings = append(findings, Finding{RuleID: ruleID, Severity: sev, Message: msg})
 	}
 
-	fieldNames := make([]string, 0, len(dn.Attributes))
-	for name := range dn.Attributes {
-		fieldNames = append(fieldNames, name)
-	}
-	SortAttributeKeys(fieldNames)
-	for _, fieldName := range fieldNames {
+	for _, fieldName := range AttributeNames(dn.Attributes) {
 		req := dn.Attributes[fieldName]
 		// Profile keys may be aliases or raw OIDs; resolve to the key that
 		// nameValues uses.

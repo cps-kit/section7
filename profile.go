@@ -1496,7 +1496,7 @@ func validateTransparency(p *Profile) []string {
 	// were listed by name or by raw OID.
 	var poison, sct *Extension
 	var poisonKey, sctKey string
-	for extName := range p.Requirements.Extensions {
+	for _, extName := range ExtensionNames(p.Requirements.Extensions) {
 		oid, ok := ExtensionOID(extName)
 		if !ok {
 			continue
@@ -1602,7 +1602,7 @@ func ValidateProfile(p *Profile) []string {
 		errs = append(errs,
 			"requirements.issuer.attributes is missing; a profile must list the issuer attributes it permits")
 	}
-	for fieldName := range p.Requirements.Issuer.Attributes {
+	for _, fieldName := range AttributeNames(p.Requirements.Issuer.Attributes) {
 		if !IsSupportedSubjectAttribute(fieldName) {
 			errs = append(errs, fmt.Sprintf("unknown issuer attribute: %q", fieldName))
 		}
@@ -1618,7 +1618,7 @@ func ValidateProfile(p *Profile) []string {
 	}
 
 	// Check subject attributes
-	for fieldName := range p.Requirements.Subject.Attributes {
+	for _, fieldName := range AttributeNames(p.Requirements.Subject.Attributes) {
 		if !IsSupportedSubjectAttribute(fieldName) {
 			errs = append(errs, fmt.Sprintf("unknown subject attribute: %q", fieldName))
 		}
@@ -1638,8 +1638,29 @@ func ValidateProfile(p *Profile) []string {
 	// poison extension is only ever correct in a Precertificate.
 	errs = append(errs, validateTransparency(p)...)
 
+	// An extension may be keyed by its well-known name, by a name declared with
+	// extension_oid, or by raw OID; whichever is used, it may appear only once.
+	firstKey := map[string]string{}
+	for _, extName := range ExtensionNames(p.Requirements.Extensions) {
+		oid, ok := ExtensionOID(extName)
+		if !ok {
+			oid = p.Requirements.Extensions[extName].OID
+			ok = IsValidOID(oid)
+		}
+		if !ok {
+			continue
+		}
+		if first, dup := firstKey[oid]; dup {
+			errs = append(errs, fmt.Sprintf(
+				"requirements.extensions lists extension %s more than once, as %q and %q", oid, first, extName))
+			continue
+		}
+		firstKey[oid] = extName
+	}
+
 	// Check extensions
-	for extName, ext := range p.Requirements.Extensions {
+	for _, extName := range ExtensionNames(p.Requirements.Extensions) {
+		ext := p.Requirements.Extensions[extName]
 		if !IsSupportedExtension(extName) {
 			errs = append(errs, fmt.Sprintf(
 				"unsupported extension: %q; an extension that is not well known must declare its "+
@@ -2005,6 +2026,17 @@ func ExtensionNames(extensions map[string]Extension) []string {
 		names = append(names, name)
 	}
 	sort.Strings(names)
+	return names
+}
+
+// AttributeNames returns the keys of a distinguished name's attributes in the
+// order a conforming certificate encodes them.
+func AttributeNames(attrs map[string]Field) []string {
+	names := make([]string, 0, len(attrs))
+	for name := range attrs {
+		names = append(names, name)
+	}
+	SortAttributeKeys(names)
 	return names
 }
 

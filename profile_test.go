@@ -227,6 +227,70 @@ func TestValidateProfileMultipleErrors(t *testing.T) {
 	}
 }
 
+// TestValidateProfileErrorOrderIsStable guards against walking the profile's
+// maps directly, which made the errors for one profile come out in a different
+// order on every run.
+func TestValidateProfileErrorOrderIsStable(t *testing.T) {
+	p := &Profile{
+		Requirements: Requirements{
+			Version:            3,
+			SignatureAlgorithm: SignatureAlgorithm{Allowed: []string{"sha256WithRSAEncryption"}},
+			Issuer:             DistinguishedName{Attributes: map[string]Field{"common_name": {}, "issuer_pet": {}}},
+			Validity:           Validity{MaximumDays: 398},
+			PublicKey:          PublicKey{Algorithms: []KeyAlgorithm{{Name: "rsaEncryption"}}},
+			Subject: DistinguishedName{
+				Attributes: map[string]Field{"phone_number": {}, "favourite_pet": {}},
+			},
+			Extensions: map[string]Extension{
+				"made_up_extension":   {},
+				"another_made_up_ext": {},
+			},
+		},
+	}
+
+	want := ValidateProfile(p)
+	order := []string{"issuer_pet", "favourite_pet", "phone_number", "another_made_up_ext", "made_up_extension"}
+	joined := strings.Join(want, "\n")
+	pos := 0
+	for _, name := range order {
+		i := strings.Index(joined[pos:], name)
+		if i == -1 {
+			t.Fatalf("errors should mention %v in that order, got: %v", order, want)
+		}
+		pos += i + len(name)
+	}
+
+	for i := 0; i < 20; i++ {
+		if got := ValidateProfile(p); strings.Join(got, "\n") != joined {
+			t.Fatalf("error order changed between runs:\n%v\n%v", want, got)
+		}
+	}
+}
+
+// TestValidateProfileRejectsDuplicateExtensions verifies an extension may be
+// listed only once, however each entry refers to it.
+func TestValidateProfileRejectsDuplicateExtensions(t *testing.T) {
+	tests := []struct {
+		name       string
+		extensions map[string]Extension
+		wantDup    bool
+	}{
+		{"name and OID", map[string]Extension{"subject_alt_name": {}, "2.5.29.17": {}}, true},
+		{"name and declared key", map[string]Extension{"subject_alt_name": {}, "my_san": {OID: "2.5.29.17"}}, true},
+		{"two declared keys", map[string]Extension{"vendor_a": {OID: "1.2.3.4.5"}, "vendor_b": {OID: "1.2.3.4.5"}}, true},
+		{"distinct", map[string]Extension{"subject_alt_name": {}, "2.5.29.15": {}}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := ValidateProfile(&Profile{Requirements: Requirements{Extensions: tt.extensions}})
+			got := strings.Contains(strings.Join(errs, "\n"), "more than once")
+			if got != tt.wantDup {
+				t.Errorf("duplicate reported = %v, want %v; errors: %v", got, tt.wantDup, errs)
+			}
+		})
+	}
+}
+
 // TestValidateProfileRequiresValidity tests that a profile must state the
 // validity period it permits. Unlike a list of permitted values, a bound that
 // is left out cannot be read strictly; it would simply go unchecked.
