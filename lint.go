@@ -845,6 +845,19 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 		}
 	}
 
+	// ---- Profile version ----
+	if v := p.Profile.Version; !v.IsZero() {
+		if v.After(cert.NotBefore) {
+			add(Error, "PROFILE-002", fmt.Sprintf(
+				"profile version %s is later than the certificate's notBefore %s",
+				v.Format(time.RFC3339Nano), cert.NotBefore.Format(time.RFC3339)))
+		} else {
+			add(Info, "PROFILE-002", fmt.Sprintf(
+				"profile version %s is not later than the certificate's notBefore %s OK",
+				v.Format(time.RFC3339Nano), cert.NotBefore.Format(time.RFC3339)))
+		}
+	}
+
 	// The checks below follow the field order of the TBSCertificate.
 
 	// ---- Version ----

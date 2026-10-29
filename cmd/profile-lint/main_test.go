@@ -1741,6 +1741,37 @@ func TestSelectProfilesByVersion(t *testing.T) {
 	}
 }
 
+// TestLintProfileVersion verifies that linting against a profile whose version
+// is later than the certificate's notBefore reports an error.
+func TestLintProfileVersion(t *testing.T) {
+	cert := createCertWithPolicies(t, "2.23.140.1.2.2")
+
+	tests := []struct {
+		name     string
+		version  time.Time
+		severity Severity
+	}{
+		{"older version", cert.NotBefore.Add(-time.Hour), Info},
+		{"version equals notBefore", cert.NotBefore, Info},
+		{"newer version", cert.NotBefore.Add(time.Hour), Error},
+		{"no version", time.Time{}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := section7.Profile{Profile: section7.Meta{Version: section7.ProfileVersion{Time: tt.version}}}
+			var got Severity
+			for _, f := range lint(cert, p) {
+				if f.RuleID == "PROFILE-002" {
+					got = f.Severity
+				}
+			}
+			if got != tt.severity {
+				t.Errorf("PROFILE-002 severity %q, want %q", got, tt.severity)
+			}
+		})
+	}
+}
+
 // TestLintPolicyOIDMissingListsFound verifies the POLICY-001 error names the
 // policy OIDs the certificate does carry, or says it carries none.
 func TestLintPolicyOIDMissingListsFound(t *testing.T) {
