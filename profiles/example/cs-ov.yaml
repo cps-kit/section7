@@ -3,7 +3,7 @@ extends:
   - _subject-organization.yaml
 
 profile:
-  name:  OV Code Signing Certificate
+  name: OV Code Signing Certificate
   recognized_by:
     policy_oid: 2.23.140.1.4.1
 

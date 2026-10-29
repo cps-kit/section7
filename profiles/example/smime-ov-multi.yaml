@@ -3,20 +3,20 @@ extends:
   - _subject-organization.yaml
 
 profile:
-  name:  S/MIME Organization Validated - Multipurpose
+  name: S/MIME Organization Validated - Multipurpose
   recognized_by:
     policy_oid: 2.23.140.1.5.2.2
 
 requirements:
   subject:
     attributes:
-      organization_identifier:
-        required: true
       email_address:
         required: false
         length:
           min: 1
           max: 128
+      organization_identifier:
+        required: true
 
   extensions:
     certificate_policies:

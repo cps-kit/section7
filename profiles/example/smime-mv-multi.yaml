@@ -1,7 +1,7 @@
 extends: _smime.yaml
 
 profile:
-  name:  S/MIME Mailbox Validated - Multipurpose
+  name: S/MIME Mailbox Validated - Multipurpose
   recognized_by:
     policy_oid: 2.23.140.1.5.1.2
 

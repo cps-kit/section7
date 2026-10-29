@@ -4,7 +4,7 @@ extends:
   - _subject-ev.yaml
 
 profile:
-  name:  EV Code Signing Certificate
+  name: EV Code Signing Certificate
   recognized_by:
     policy_oid: 2.23.140.1.3
 
