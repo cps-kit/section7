@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -30,19 +31,23 @@ type Meta struct {
 	Version ProfileVersion `yaml:"version"`
 }
 
-// ProfileVersion is the revision number of a profile document. It is written
-// in YAML as a positive integer; zero means the profile does not state one.
-type ProfileVersion int
+// ProfileVersion is the revision of a profile document, written in YAML as an
+// RFC 3339 timestamp such as 2026-10-29T12:00:00Z. The zero value means the
+// profile does not state one.
+type ProfileVersion struct {
+	time.Time
+}
 
-// UnmarshalYAML accepts only a positive integer, so that a float or a quoted
+// UnmarshalYAML accepts only an RFC 3339 timestamp, so that a bare date or a
 // number is reported rather than silently converted.
 func (v *ProfileVersion) UnmarshalYAML(node *yaml.Node) error {
-	var n int
-	if node.Kind != yaml.ScalarNode || node.ShortTag() != "!!int" || node.Decode(&n) != nil || n <= 0 {
-		return fmt.Errorf("profile 'version' must be a positive integer (got %q)", node.Value)
+	if node.Kind == yaml.ScalarNode {
+		if t, err := time.Parse(time.RFC3339, node.Value); err == nil {
+			v.Time = t
+			return nil
+		}
 	}
-	*v = ProfileVersion(n)
-	return nil
+	return fmt.Errorf("profile 'version' must be an RFC 3339 timestamp such as 2026-10-29T12:00:00Z (got %q)", node.Value)
 }
 
 // CertificateVersion is the X.509 version a profile describes. It is written in
@@ -624,6 +629,19 @@ func resolve(path string, stack []string) (map[string]interface{}, error) {
 	}
 	if raw == nil {
 		raw = map[string]interface{}{}
+	}
+
+	// The decoder turns any timestamp, even a bare date, into a time.Time; keep
+	// profile.version as written so that ProfileVersion can hold it to RFC 3339.
+	var doc struct {
+		Profile struct {
+			Version yaml.Node `yaml:"version"`
+		} `yaml:"profile"`
+	}
+	if yaml.Unmarshal(data, &doc) == nil && doc.Profile.Version.Kind == yaml.ScalarNode {
+		if m, ok := raw["profile"].(map[string]interface{}); ok {
+			m["version"] = doc.Profile.Version.Value
+		}
 	}
 
 	bases, err := extendsList(raw[ExtendsKey], path)
