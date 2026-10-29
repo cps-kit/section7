@@ -267,6 +267,30 @@ func TestValidateProfileErrorOrderIsStable(t *testing.T) {
 	}
 }
 
+// TestValidateProfileRejectsDuplicateExtensions verifies an extension may be
+// listed only once, however each entry refers to it.
+func TestValidateProfileRejectsDuplicateExtensions(t *testing.T) {
+	tests := []struct {
+		name       string
+		extensions map[string]Extension
+		wantDup    bool
+	}{
+		{"name and OID", map[string]Extension{"subject_alt_name": {}, "2.5.29.17": {}}, true},
+		{"name and declared key", map[string]Extension{"subject_alt_name": {}, "my_san": {OID: "2.5.29.17"}}, true},
+		{"two declared keys", map[string]Extension{"vendor_a": {OID: "1.2.3.4.5"}, "vendor_b": {OID: "1.2.3.4.5"}}, true},
+		{"distinct", map[string]Extension{"subject_alt_name": {}, "2.5.29.15": {}}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := ValidateProfile(&Profile{Requirements: Requirements{Extensions: tt.extensions}})
+			got := strings.Contains(strings.Join(errs, "\n"), "more than once")
+			if got != tt.wantDup {
+				t.Errorf("duplicate reported = %v, want %v; errors: %v", got, tt.wantDup, errs)
+			}
+		})
+	}
+}
+
 // TestValidateProfileRequiresValidity tests that a profile must state the
 // validity period it permits. Unlike a list of permitted values, a bound that
 // is left out cannot be read strictly; it would simply go unchecked.

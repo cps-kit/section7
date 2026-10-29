@@ -1638,6 +1638,26 @@ func ValidateProfile(p *Profile) []string {
 	// poison extension is only ever correct in a Precertificate.
 	errs = append(errs, validateTransparency(p)...)
 
+	// An extension may be keyed by its well-known name, by a name declared with
+	// extension_oid, or by raw OID; whichever is used, it may appear only once.
+	firstKey := map[string]string{}
+	for _, extName := range ExtensionNames(p.Requirements.Extensions) {
+		oid, ok := ExtensionOID(extName)
+		if !ok {
+			oid = p.Requirements.Extensions[extName].OID
+			ok = IsValidOID(oid)
+		}
+		if !ok {
+			continue
+		}
+		if first, dup := firstKey[oid]; dup {
+			errs = append(errs, fmt.Sprintf(
+				"requirements.extensions lists extension %s more than once, as %q and %q", oid, first, extName))
+			continue
+		}
+		firstKey[oid] = extName
+	}
+
 	// Check extensions
 	for _, extName := range ExtensionNames(p.Requirements.Extensions) {
 		ext := p.Requirements.Extensions[extName]
