@@ -1688,6 +1688,58 @@ func TestLintPolicyUnderArcAccepted(t *testing.T) {
 	}
 }
 
+// TestLintPolicyOIDMissingListsFound verifies the POLICY-001 error names the
+// policy OIDs the certificate does carry, or says it carries none.
+func TestLintPolicyOIDMissingListsFound(t *testing.T) {
+	p := section7.Profile{Profile: section7.Meta{
+		Name:         "Test Profile",
+		RecognizedBy: section7.RecognizedBy{PolicyOID: "2.23.140.1.2.2"},
+	}}
+
+	tests := []struct {
+		name  string
+		cert  *x509.Certificate
+		found string
+	}{
+		{"other policies", createCertWithPolicies(t, "2.23.140.1.2.1", "1.2.3.4"), "(found: 2.23.140.1.2.1, 1.2.3.4)"},
+		{"no policies", createParsedTestCert(t, "example.com", "Test Org", "US", nil), "(found: none)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ok := false
+			for _, f := range lint(tt.cert, p) {
+				if f.RuleID == "POLICY-001" && f.Severity == Error && strings.HasSuffix(f.Message, tt.found) {
+					ok = true
+				}
+			}
+			if !ok {
+				t.Errorf("expected a POLICY-001 error ending %q", tt.found)
+			}
+		})
+	}
+}
+
+// TestUnmatchedFindingListsFound verifies the PROFILE-001 error names the
+// policy OIDs the certificate carries, or says it carries none.
+func TestUnmatchedFindingListsFound(t *testing.T) {
+	tests := []struct {
+		name  string
+		cert  *x509.Certificate
+		found string
+	}{
+		{"other policies", createCertWithPolicies(t, "1.2.3.4", "1.2.3.5"), "(found: 1.2.3.4, 1.2.3.5)"},
+		{"no policies", createParsedTestCert(t, "example.com", "Test Org", "US", nil), "(found: none)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := unmatchedFinding(tt.cert)
+			if f.RuleID != "PROFILE-001" || f.Severity != Error || !strings.HasSuffix(f.Message, tt.found) {
+				t.Errorf("got %v, want a PROFILE-001 error ending %q", f, tt.found)
+			}
+		})
+	}
+}
+
 // TestLintPolicyOutsideArcRejected verifies an unrelated policy is still caught.
 func TestLintPolicyOutsideArcRejected(t *testing.T) {
 	p := policyArcProfile()

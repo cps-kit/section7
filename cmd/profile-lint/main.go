@@ -61,8 +61,29 @@ func runProfile(cert *x509.Certificate, certPath, profilePath string, loaded *se
 		os.Exit(1)
 	}
 
+	against := fmt.Sprintf("%s (%s)", loaded.Profile.Profile.Name, profilePath)
+	return printReport(cert, certPath, against, lint(cert, loaded.Profile))
+}
+
+// unmatchedFinding reports that no profile is recognized by the certificate's
+// policy OIDs.
+func unmatchedFinding(cert *x509.Certificate) Finding {
+	found := "none"
+	if oids := certPolicyOIDs(cert); len(oids) > 0 {
+		found = strings.Join(oids, ", ")
+	}
+	return Finding{
+		RuleID:   "PROFILE-001",
+		Severity: Error,
+		Message: fmt.Sprintf(
+			"no profile is recognized by the certificate's policy OIDs (found: %s)", found),
+	}
+}
+
+// printReport prints the findings for cert and returns the number of errors.
+func printReport(cert *x509.Certificate, certPath, against string, findings []Finding) int {
 	fmt.Printf("Linting certificate:  %s\n", certPath)
-	fmt.Printf("Against profile:      %s (%s)\n", loaded.Profile.Profile.Name, profilePath)
+	fmt.Printf("Against profile:      %s\n", against)
 	fmt.Printf("Kind:                 %s\n", certificateKind(cert))
 	fmt.Printf("Subject:              %s\n", cert.Subject.String())
 	fmt.Printf("Validity:             %s → %s\n",
@@ -72,7 +93,6 @@ func runProfile(cert *x509.Certificate, certPath, profilePath string, loaded *se
 	}
 	fmt.Println(strings.Repeat("─", 72))
 
-	findings := lint(cert, loaded.Profile)
 	for _, f := range findings {
 		fmt.Println(f)
 	}
@@ -153,10 +173,7 @@ func main() {
 	}
 
 	if matched == 0 {
-		fmt.Fprintf(os.Stderr,
-			"Error: no profile matched the certificate's policy OIDs (%s)\n",
-			strings.Join(certPolicyOIDs(cert), ", "))
-		os.Exit(1)
+		totalErrors += printReport(cert, certPath, "none", []Finding{unmatchedFinding(cert)})
 	}
 
 	if totalErrors > 0 {

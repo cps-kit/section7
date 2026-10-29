@@ -836,9 +836,12 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 			add(Info, "POLICY-001", fmt.Sprintf(
 				"certificate contains the profile Policy OID %s", oid))
 		} else {
+			found := "none"
+			if oids := CertPolicyOIDs(cert); len(oids) > 0 {
+				found = strings.Join(oids, ", ")
+			}
 			add(Error, "POLICY-001", fmt.Sprintf(
-				"certificate does not contain the required Policy OID %s (found: %s)",
-				oid, strings.Join(CertPolicyOIDs(cert), ", ")))
+				"certificate does not contain the required Policy OID %s (found: %s)", oid, found))
 		}
 	}
 
