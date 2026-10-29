@@ -530,7 +530,7 @@ func backtickAll(values []string) []string {
 	return out
 }
 
-func renderProfile(p section7.Profile, raw map[string]interface{}) string {
+func renderProfile(p section7.Profile) string {
 	var sb strings.Builder
 
 	heading := "## Certificate Profile: " + p.Profile.Name
@@ -656,16 +656,6 @@ func renderProfile(p section7.Profile, raw map[string]interface{}) string {
 		}
 	}
 
-	// Rules
-	if len(p.Rules) > 0 {
-		sb.WriteString("### Rules\n\n")
-		for _, r := range p.Rules {
-			text := section7.InterpolateText(r.Text, raw)
-			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", r.ID, text))
-		}
-		sb.WriteString("\n")
-	}
-
 	return sb.String()
 }
 
@@ -698,7 +688,7 @@ func expandProfile(path string, w io.Writer) error {
 	}
 	// The YAML encoder sorts map keys alphabetically; restore the order of a
 	// profile and of the certificate it describes.
-	orderKeys(&doc, []string{"profile", "requirements", "rules"})
+	orderKeys(&doc, []string{"profile", "requirements"})
 	if req := mapValue(&doc, "requirements"); req != nil {
 		orderKeys(req, section7.RequirementOrder)
 		for _, name := range []string{"issuer", "subject"} {
@@ -824,7 +814,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		rendered := renderProfile(loaded.Profile, loaded.Raw)
+		rendered := renderProfile(loaded.Profile)
 		content = strings.ReplaceAll(content, placeholder, rendered)
 
 		fmt.Printf("Injected profile '%s' for placeholder %s\n", loaded.Profile.Profile.Name, placeholder)

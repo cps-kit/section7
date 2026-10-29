@@ -8,101 +8,27 @@ import (
 	"time"
 )
 
-// TestResolvePath tests the ResolvePath function with various paths.
-func TestResolvePath(t *testing.T) {
-	data := map[string]interface{}{
-		"requirements": map[string]interface{}{
-			"validity": map[string]interface{}{
-				"maximum_days": 398,
-			},
-			"subject": map[string]interface{}{
-				"organization_name": map[string]interface{}{
-					"length": map[string]interface{}{
-						"max": 64,
-					},
-				},
-			},
-		},
-		"profile": map[string]interface{}{
-			"name": "TLS OV Certificate",
-		},
-	}
+// TestRulesKeyRejected verifies the retired top-level rules section is
+// reported rather than silently ignored.
+func TestRulesKeyRejected(t *testing.T) {
+	loaded := loadYAML(t, `
+profile:
+  name: Retired Rules
+rules:
+  - id: TEST-001
+    text: A requirement no tool checks.
+`)
 
-	tests := []struct {
-		path    string
-		want    string
-		wantOK  bool
-		wantKey bool // Whether result should be a map key (human-readable label)
-	}{
-		{"requirements.validity.maximum_days", "398", true, false},
-		{"profile.name", "TLS OV Certificate", true, false},
-		{"requirements.subject.organization_name", "organization name", true, true},
-		{"nonexistent.path", "", false, false},
-		{"requirements.nonexistent", "", false, false},
+	errs := loaded.Validate()
+	found := false
+	for _, err := range errs {
+		if strings.Contains(err, `unrecognized key "rules" in root`) {
+			found = true
+			break
+		}
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.path, func(t *testing.T) {
-			got, ok := ResolvePath(data, tt.path)
-			if ok != tt.wantOK {
-				t.Errorf("ResolvePath(%q) ok = %v, want %v", tt.path, ok, tt.wantOK)
-			}
-			if ok && got != tt.want {
-				t.Errorf("ResolvePath(%q) = %q, want %q", tt.path, got, tt.want)
-			}
-		})
-	}
-}
-
-// TestInterpolateText tests the InterpolateText function.
-func TestInterpolateText(t *testing.T) {
-	data := map[string]interface{}{
-		"requirements": map[string]interface{}{
-			"validity": map[string]interface{}{
-				"maximum_days": 398,
-			},
-			"subject": map[string]interface{}{
-				"country": map[string]interface{}{},
-			},
-		},
-		"profile": map[string]interface{}{
-			"name": "TLS OV Certificate",
-		},
-	}
-
-	tests := []struct {
-		text string
-		want string
-	}{
-		{
-			"Maximum validity of {requirements.validity.maximum_days} days",
-			"Maximum validity of 398 days",
-		},
-		{
-			"Profile: {profile.name}",
-			"Profile: TLS OV Certificate",
-		},
-		{
-			"Subject {requirements.subject.country} field",
-			"Subject country field",
-		},
-		{
-			"No placeholders here",
-			"No placeholders here",
-		},
-		{
-			"Multiple {profile.name} and {requirements.validity.maximum_days} days",
-			"Multiple TLS OV Certificate and 398 days",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.text, func(t *testing.T) {
-			got := InterpolateText(tt.text, data)
-			if got != tt.want {
-				t.Errorf("InterpolateText(%q) = %q, want %q", tt.text, got, tt.want)
-			}
-		})
+	if !found {
+		t.Errorf("rules should be reported, got: %v", errs)
 	}
 }
 

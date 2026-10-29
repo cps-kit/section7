@@ -28,18 +28,9 @@ func TestRenderProfile(t *testing.T) {
 				"basic_constraints": {Critical: section7.CriticalityRequired},
 			},
 		},
-		Rules: []section7.Rule{
-			{ID: "TEST-001", Text: "Test rule with {profile.name}"},
-		},
 	}
 
-	raw := map[string]interface{}{
-		"profile": map[string]interface{}{
-			"name": "Test Profile",
-		},
-	}
-
-	rendered := renderProfile(p, raw)
+	rendered := renderProfile(p)
 
 	// Check that key sections are present
 	if !strings.Contains(rendered, "## Certificate Profile: Test Profile\n") {
@@ -57,12 +48,6 @@ func TestRenderProfile(t *testing.T) {
 	if !strings.Contains(rendered, "### Extensions") {
 		t.Error("rendered profile should contain Extensions section")
 	}
-	if !strings.Contains(rendered, "### Rules") {
-		t.Error("rendered profile should contain Rules section")
-	}
-	if !strings.Contains(rendered, "Test rule with Test Profile") {
-		t.Error("rendered profile should have interpolated rule text")
-	}
 }
 
 // TestRenderProfileVersion checks the profile's own revision appears in the
@@ -75,13 +60,13 @@ func TestRenderProfileVersion(t *testing.T) {
 		},
 		Requirements: section7.Requirements{Version: 3},
 	}
-	if rendered := renderProfile(p, map[string]interface{}{}); !strings.Contains(rendered,
+	if rendered := renderProfile(p); !strings.Contains(rendered,
 		"## Certificate Profile: TLS DV Certificate (version 2026-10-29T12:00:00Z)\n") {
 		t.Errorf("the profile version should appear in the heading, got:\n%s", rendered)
 	}
 
 	p.Profile.Version = section7.ProfileVersion{}
-	if rendered := renderProfile(p, map[string]interface{}{}); !strings.Contains(rendered,
+	if rendered := renderProfile(p); !strings.Contains(rendered,
 		"## Certificate Profile: TLS DV Certificate\n") {
 		t.Errorf("an unstated profile version should be left out of the heading, got:\n%s", rendered)
 	}
@@ -102,7 +87,7 @@ func TestRenderProfileWithLengthConstraints(t *testing.T) {
 		},
 	}
 
-	rendered := renderProfile(p, map[string]interface{}{})
+	rendered := renderProfile(p)
 
 	if !strings.Contains(rendered, "Min Length") {
 		t.Error("rendered profile should include Min Length column when constraints exist")
@@ -129,7 +114,7 @@ func TestRenderProfileExtensionDetails(t *testing.T) {
 		},
 	}
 
-	rendered := renderProfile(p, map[string]interface{}{})
+	rendered := renderProfile(p)
 
 	if !strings.Contains(rendered, "#### Basic Constraints") {
 		t.Error("rendered profile should contain a dedicated Basic Constraints section")
@@ -171,7 +156,7 @@ func TestRenderProfileWithoutLengthConstraints(t *testing.T) {
 		},
 	}
 
-	rendered := renderProfile(p, map[string]interface{}{})
+	rendered := renderProfile(p)
 
 	if !strings.Contains(rendered, "| Attribute | Short Name | OID | Required |") {
 		t.Error("rendered profile should have simple Required column without length columns")
@@ -194,7 +179,7 @@ func TestRenderProfileSubjectWithRequiredAttributes(t *testing.T) {
 		},
 	}
 
-	rendered := renderProfile(p, map[string]interface{}{})
+	rendered := renderProfile(p)
 
 	if !strings.Contains(rendered, "The subject field MUST contain a non-empty RDNSequence") {
 		t.Errorf("a subject with required attributes should be stated as mandatory, got:\n%s", rendered)
@@ -225,7 +210,7 @@ func TestRenderProfileSubjectWithoutRequiredAttributes(t *testing.T) {
 		},
 	}
 
-	rendered := renderProfile(p, map[string]interface{}{})
+	rendered := renderProfile(p)
 
 	if !strings.Contains(rendered, "The subject field MAY contain an empty RDNSequence") {
 		t.Errorf("a subject without required attributes should be stated as optional, got:\n%s", rendered)
@@ -267,7 +252,7 @@ func TestRenderProfileFollowsCertificateOrder(t *testing.T) {
 		},
 	}
 
-	rendered := renderProfile(p, map[string]interface{}{})
+	rendered := renderProfile(p)
 
 	inOrder := func(what string, items ...string) {
 		t.Helper()
@@ -316,7 +301,7 @@ func TestRenderProfileAlgorithmsAndIssuer(t *testing.T) {
 		},
 	}
 
-	rendered := renderProfile(p, map[string]interface{}{})
+	rendered := renderProfile(p)
 
 	for _, want := range []string{
 		"### Signature Algorithm",
@@ -344,7 +329,7 @@ func TestRenderProfileEmptyExtensions(t *testing.T) {
 		},
 	}
 
-	rendered := renderProfile(p, map[string]interface{}{})
+	rendered := renderProfile(p)
 
 	if strings.Contains(rendered, "### Extensions") {
 		t.Error("rendered profile should not have Extensions section when empty")
