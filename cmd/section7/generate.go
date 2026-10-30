@@ -673,15 +673,7 @@ func runGenerate(args []string) {
 	fs.Usage = generateUsage
 	fs.Parse(args)
 
-	// Positional fallback: section7 generate <template> <output>
-	if *templatePath == "" && fs.NArg() > 0 {
-		*templatePath = fs.Arg(0)
-	}
-	if *outputPath == "" && fs.NArg() > 1 {
-		*outputPath = fs.Arg(1)
-	}
-
-	if *templatePath == "" || *outputPath == "" || *profilesDir == "" {
+	if *templatePath == "" || *outputPath == "" || *profilesDir == "" || fs.NArg() > 0 {
 		generateUsage()
 		os.Exit(1)
 	}
