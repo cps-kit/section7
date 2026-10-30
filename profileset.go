@@ -19,11 +19,18 @@ type ProfileSet struct {
 
 // LoadProfileSet loads every profile in dir and validates it. A profile that
 // cannot be interpreted makes the whole set an error, so that no certificate
-// is ever linted against one.
+// is ever linted against one, and so does a directory holding no profiles,
+// which could choose a profile for no certificate.
 func LoadProfileSet(dir string) (*ProfileSet, error) {
+	if dir == "" {
+		return nil, fmt.Errorf("no profile directory given")
+	}
 	profiles, err := LoadDir(dir)
 	if err != nil {
 		return nil, err
+	}
+	if len(profiles) == 0 {
+		return nil, fmt.Errorf("no profiles in %s", dir)
 	}
 
 	paths := make([]string, 0, len(profiles))
