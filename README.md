@@ -169,7 +169,7 @@ The list is exhaustive, and a profile that lists none permits none. `name` may b
 
 ### Unique identifiers
 
-The optional `issuerUniqueID` and `subjectUniqueID` fields of the TBSCertificate are forbidden by the Baseline Requirements. There is no profile setting for them: the linter reports `UNIQUEID-001` for any certificate that contains either field, whatever profile it is linted against, and the generated document states that both MUST NOT be present.
+The optional `issuerUniqueID` and `subjectUniqueID` fields of the TBSCertificate are forbidden by the Baseline Requirements. There is no profile setting for them: the linter reports `UNIQUEID-ISSUER` or `UNIQUEID-SUBJECT` for any certificate that contains either field, whatever profile it is linted against, and the generated document states that both MUST NOT be present.
 
 ### Extension requirements
 
@@ -301,6 +301,8 @@ section7 lint -in cert.pem -profiles profiles/example
 ```
 
 With `-profile`, it lints against the one profile in that file. With `-profiles`, it uses the one profile in that directory recognized by the certificate's policy OIDs whose `profile.version` is the latest not later than the certificate's notBefore; if no matching profile is found, it reports why none could be chosen. Every profile in the directory must validate, or none is used.
+
+Each finding has a rule ID made of a prefix naming the check and a suffix naming the outcome: `-NOTE` is a note, `-OK` is a pass, and any other suffix is a failure, such as `-MISSING`, `-UNLISTED` or `-UNKNOWN` (a profile value the linter does not recognize). For example, `SERIAL-OK` reports a conforming serial number and `SERIAL-NOTPOSITIVE` a serial number that is not positive.
 
 ## Using the library
 

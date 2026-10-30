@@ -320,7 +320,7 @@ func TestLintSubjectLengthCountsCharactersNotBytes(t *testing.T) {
 	cert, _ := createTestCert("example.com", org, "US", 30, false, nil)
 
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "SUBJECT-003" {
+		if f.RuleID == "SUBJECT-TOOLONG" {
 			t.Errorf("a 64-character value must not violate a 64-character limit, got: %s", f)
 		}
 	}
@@ -346,7 +346,7 @@ func TestLintSubjectLengthTooLongInCharacters(t *testing.T) {
 
 	found := false
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "SUBJECT-003" && f.Severity == section7.Error {
+		if f.RuleID == "SUBJECT-TOOLONG" && f.Severity == section7.Error {
 			found = true
 			if !strings.Contains(f.Message, "actual: 6 characters") {
 				t.Errorf("the message should report the character count, got: %s", f)
@@ -378,7 +378,7 @@ func TestLintSubjectMinLengthCountsCharacters(t *testing.T) {
 
 	found := false
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "SUBJECT-002" && f.Severity == section7.Error {
+		if f.RuleID == "SUBJECT-TOOSHORT" && f.Severity == section7.Error {
 			found = true
 		}
 	}
@@ -429,7 +429,7 @@ func TestLintEmptySubjectRejectedWhenAttributeRequired(t *testing.T) {
 
 	found := false
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "SUBJECT-001" && f.Severity == section7.Error &&
+		if f.RuleID == "SUBJECT-MISSING" && f.Severity == section7.Error &&
 			strings.Contains(f.Message, "'organizationName'") {
 			found = true
 		}
@@ -457,19 +457,20 @@ func TestLintEmptySubjectRequiresCriticalSAN(t *testing.T) {
 	tests := []struct {
 		name     string
 		cert     *x509.Certificate
+		rule     string
 		want     section7.Severity
 		inMsg    string
 		conforms bool
 	}{
-		{"no SAN", createEmptySubjectCert(t), section7.Error, "is required", false},
-		{"non-critical SAN", createEmptySubjectCert(t, sanExtension(t, false)), section7.Error, "must be critical", false},
-		{"critical SAN", createEmptySubjectCert(t, sanExtension(t, true)), section7.Info, "is critical", true},
+		{"no SAN", createEmptySubjectCert(t), "EMPTYSUBJECT-NOSAN", section7.Error, "is required", false},
+		{"non-critical SAN", createEmptySubjectCert(t, sanExtension(t, false)), "EMPTYSUBJECT-NONCRITICAL", section7.Error, "must be critical", false},
+		{"critical SAN", createEmptySubjectCert(t, sanExtension(t, true)), "EMPTYSUBJECT-OK", section7.Info, "is critical", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			found := false
 			for _, f := range section7.Lint(tt.cert, p) {
-				if f.RuleID == "SUBJECT-005" && f.Severity == tt.want && strings.Contains(f.Message, tt.inMsg) {
+				if f.RuleID == tt.rule && f.Severity == tt.want && strings.Contains(f.Message, tt.inMsg) {
 					found = true
 				}
 				if tt.conforms && strings.HasPrefix(f.RuleID, "SUBJECT-") && f.Severity == section7.Error {
@@ -477,14 +478,14 @@ func TestLintEmptySubjectRequiresCriticalSAN(t *testing.T) {
 				}
 			}
 			if !found {
-				t.Errorf("expected SUBJECT-005 %v containing %q", tt.want, tt.inMsg)
+				t.Errorf("expected %s %v containing %q", tt.rule, tt.want, tt.inMsg)
 			}
 		})
 	}
 
 	cert, _ := createTestCert("example.com", "Test Org", "US", 30, false, nil)
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "SUBJECT-005" {
+		if strings.HasPrefix(f.RuleID, "EMPTYSUBJECT-") {
 			t.Errorf("the empty-subject SAN rule must not apply to a populated subject, got: %s", f)
 		}
 	}
@@ -606,7 +607,7 @@ func TestLintRejectsUnlistedSubjectAttribute(t *testing.T) {
 
 	var unlisted []string
 	for _, f := range findings {
-		if f.RuleID == "SUBJECT-004" && f.Severity == section7.Error {
+		if f.RuleID == "SUBJECT-UNLISTED" && f.Severity == section7.Error {
 			unlisted = append(unlisted, f.Message)
 		}
 	}
@@ -639,10 +640,17 @@ func TestLintAllowsListedSubjectAttributes(t *testing.T) {
 
 	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
 
+	passes := 0
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "SUBJECT-004" {
+		if f.RuleID == "SUBJECT-UNLISTED" {
 			t.Errorf("listed attributes must not be reported, got: %s", f)
 		}
+		if f.RuleID == "SUBJECT-OK" && f.Severity == section7.Info {
+			passes++
+		}
+	}
+	if passes != 3 {
+		t.Errorf("each conforming attribute should be reported as SUBJECT-OK, got %d", passes)
 	}
 }
 
@@ -659,7 +667,7 @@ func TestLintProfileWithoutSubjectPermitsNoAttributes(t *testing.T) {
 
 	var unlisted []string
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "SUBJECT-004" && f.Severity == section7.Error {
+		if f.RuleID == "SUBJECT-UNLISTED" && f.Severity == section7.Error {
 			unlisted = append(unlisted, f.Message)
 		}
 	}
@@ -687,7 +695,7 @@ func TestLintRejectsUnlistedExtension(t *testing.T) {
 
 	var unlisted []string
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "EXT-009" && f.Severity == section7.Error {
+		if f.RuleID == "PRESENCE-UNLISTED" && f.Severity == section7.Error {
 			unlisted = append(unlisted, f.Message)
 		}
 	}
@@ -719,7 +727,7 @@ func TestLintAllowsListedExtensions(t *testing.T) {
 		[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
 
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "EXT-009" {
+		if f.RuleID == "PRESENCE-UNLISTED" {
 			t.Errorf("listed extensions must not be reported, got: %s", f)
 		}
 	}
@@ -738,7 +746,7 @@ func TestLintProfileWithoutExtensionsPermitsNone(t *testing.T) {
 
 	var unlisted []string
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "EXT-009" && f.Severity == section7.Error {
+		if f.RuleID == "PRESENCE-UNLISTED" && f.Severity == section7.Error {
 			unlisted = append(unlisted, f.Message)
 		}
 	}
@@ -762,7 +770,7 @@ func TestLintExtensionAcceptedByOID(t *testing.T) {
 	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
 
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "EXT-009" {
+		if f.RuleID == "PRESENCE-UNLISTED" {
 			t.Errorf("extensions listed by OID must be accepted, got: %s", f)
 		}
 	}
@@ -807,7 +815,7 @@ func TestLintVersionMismatch(t *testing.T) {
 
 	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
 
-	if !hasFinding(lint(cert, p), "VERSION-001", Error) {
+	if !hasFinding(lint(cert, p), "VERSION-MISMATCH", Error) {
 		t.Error("a v3 certificate should not satisfy a profile describing v1")
 	}
 }
@@ -825,7 +833,7 @@ func TestLintSignatureAlgorithmNotListed(t *testing.T) {
 	// createParsedTestCert signs with SHA-256 and RSA.
 	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
 
-	if !hasFinding(lint(cert, p), "SIGALG-001", Error) {
+	if !hasFinding(lint(cert, p), "SIGALG-UNLISTED", Error) {
 		t.Error("an RSA signature should not satisfy an ECDSA-only profile")
 	}
 }
@@ -842,7 +850,7 @@ func TestLintSignatureAlgorithmListed(t *testing.T) {
 	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
 
 	findings := lint(cert, p)
-	if hasFinding(findings, "SIGALG-001", Error) {
+	if hasFinding(findings, "SIGALG-UNLISTED", Error) {
 		t.Errorf("a permitted signature algorithm must not be reported, got: %v", findings)
 	}
 }
@@ -888,7 +896,7 @@ func TestLintPublicKeyAlgorithmNotListed(t *testing.T) {
 
 	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
 
-	if !hasFinding(lint(cert, p), "PUBKEY-001", Error) {
+	if !hasFinding(lint(cert, p), "PUBKEY-UNLISTED", Error) {
 		t.Error("an RSA key should not satisfy an elliptic curve only profile")
 	}
 }
@@ -908,7 +916,7 @@ func TestLintPublicKeySizeNotListed(t *testing.T) {
 	// createParsedTestCert uses a 2048 bit key.
 	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
 
-	if !hasFinding(lint(cert, p), "PUBKEY-002", Error) {
+	if !hasFinding(lint(cert, p), "KEYSIZE-UNLISTED", Error) {
 		t.Error("a 2048 bit key should not satisfy a 4096 bit only profile")
 	}
 }
@@ -935,11 +943,64 @@ func TestLintPublicKeyCurve(t *testing.T) {
 
 	cert := createECCert(t, elliptic.P256())
 
-	if hasFinding(lint(cert, permitted), "PUBKEY-003", Error) {
+	if hasFinding(lint(cert, permitted), "CURVE-UNLISTED", Error) {
 		t.Error("an alias spelling of the certificate's curve should be accepted")
 	}
-	if !hasFinding(lint(cert, forbidden), "PUBKEY-003", Error) {
+	if !hasFinding(lint(cert, forbidden), "CURVE-UNLISTED", Error) {
 		t.Error("a curve outside the profile's list should be reported")
+	}
+}
+
+// withSPKI returns a copy of cert carrying the given SubjectPublicKeyInfo.
+func withSPKI(t *testing.T, cert *x509.Certificate, oid asn1.ObjectIdentifier, key []byte) *x509.Certificate {
+	t.Helper()
+	spki, err := asn1.Marshal(struct {
+		Algorithm pkix.AlgorithmIdentifier
+		PublicKey asn1.BitString
+	}{pkix.AlgorithmIdentifier{Algorithm: oid}, asn1.BitString{Bytes: key, BitLength: 8 * len(key)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := *cert
+	c.RawSubjectPublicKeyInfo = spki
+	return &c
+}
+
+// TestLintPublicKeyAlgorithmsGoDoesNotParse verifies RSASSA-PSS and Ed448 keys,
+// which crypto/x509 leaves unparsed, are still checked against the profile.
+func TestLintPublicKeyAlgorithmsGoDoesNotParse(t *testing.T) {
+	base := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 3072)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pss := withSPKI(t, base, asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 10}, x509.MarshalPKCS1PublicKey(&rsaKey.PublicKey))
+	ed448 := withSPKI(t, base, asn1.ObjectIdentifier{1, 3, 101, 113}, make([]byte, 57))
+
+	profile := func(algs ...section7.KeyAlgorithm) section7.Profile {
+		return section7.Profile{Requirements: section7.Requirements{PublicKey: section7.PublicKey{Algorithms: algs}}}
+	}
+	tests := []struct {
+		name string
+		cert *x509.Certificate
+		p    section7.Profile
+		rule string
+		sev  Severity
+	}{
+		{"PSS listed", pss, profile(section7.KeyAlgorithm{Name: "id-RSASSA-PSS", KeySizes: []int{3072}}), "KEYSIZE-OK", Info},
+		{"PSS size not listed", pss, profile(section7.KeyAlgorithm{Name: "id-RSASSA-PSS", KeySizes: []int{2048}}), "KEYSIZE-UNLISTED", Error},
+		{"PSS not listed", pss, profile(section7.KeyAlgorithm{Name: "rsaEncryption", KeySizes: []int{3072}}), "PUBKEY-UNLISTED", Error},
+		{"Ed448 listed", ed448, profile(section7.KeyAlgorithm{Name: "id-Ed448"}), "PUBKEY-OK", Info},
+		{"Ed448 not listed", ed448, profile(section7.KeyAlgorithm{Name: "id-Ed25519"}), "PUBKEY-UNLISTED", Error},
+		{"malformed RSA key", withSPKI(t, base, asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 10}, []byte{0x01}),
+			profile(section7.KeyAlgorithm{Name: "id-RSASSA-PSS", KeySizes: []int{3072}}), "PUBKEY-UNREADABLE", Error},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if !hasFinding(lint(tt.cert, tt.p), tt.rule, tt.sev) {
+				t.Errorf("expected %s %s", tt.rule, tt.sev)
+			}
+		})
 	}
 }
 
@@ -962,12 +1023,12 @@ func TestLintKeyUsageNotListedInBitOrder(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		var got []string
 		for _, f := range lint(cert, p) {
-			if f.RuleID == "EXT-008" {
+			if f.RuleID == "KEYUSAGE-UNLISTED" {
 				got = append(got, strings.Split(f.Message, "'")[1])
 			}
 		}
 		if strings.Join(got, ",") != want {
-			t.Fatalf("EXT-008 order %v, want %s", got, want)
+			t.Fatalf("KEYUSAGE-UNLISTED order %v, want %s", got, want)
 		}
 	}
 }
@@ -984,10 +1045,10 @@ func TestLintPublicKeyEmptyListsPermitNone(t *testing.T) {
 		},
 	}
 
-	if !hasFinding(lint(createParsedTestCert(t, "example.com", "Test Org", "US", nil), p), "PUBKEY-002", Error) {
+	if !hasFinding(lint(createParsedTestCert(t, "example.com", "Test Org", "US", nil), p), "KEYSIZE-UNLISTED", Error) {
 		t.Error("an RSA entry listing no key sizes should permit none")
 	}
-	if !hasFinding(lint(createECCert(t, elliptic.P256()), p), "PUBKEY-003", Error) {
+	if !hasFinding(lint(createECCert(t, elliptic.P256()), p), "CURVE-UNLISTED", Error) {
 		t.Error("an elliptic curve entry listing no curves should permit none")
 	}
 }
@@ -1013,13 +1074,13 @@ func TestLintIssuerAttributesChecked(t *testing.T) {
 	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
 	findings := lint(cert, p)
 
-	if !hasFinding(findings, "ISSUER-001", Error) {
+	if !hasFinding(findings, "ISSUER-MISSING", Error) {
 		t.Error("a missing required issuer attribute should be reported")
 	}
 
 	var unlisted []string
 	for _, f := range findings {
-		if f.RuleID == "ISSUER-004" && f.Severity == Error {
+		if f.RuleID == "ISSUER-UNLISTED" && f.Severity == Error {
 			unlisted = append(unlisted, f.Message)
 		}
 	}
@@ -1034,10 +1095,10 @@ func TestLintEmptyIssuerRejected(t *testing.T) {
 	p := section7.Profile{Profile: section7.Meta{Name: "Test Profile"}}
 
 	// Self-signed with an empty subject, so the issuer is empty too.
-	if !hasFinding(lint(createEmptySubjectCert(t), p), "ISSUER-000", Error) {
+	if !hasFinding(lint(createEmptySubjectCert(t), p), "EMPTYISSUER-FORBIDDEN", Error) {
 		t.Error("an empty issuer should be reported")
 	}
-	if hasFinding(lint(createParsedTestCert(t, "example.com", "Test Org", "US", nil), p), "ISSUER-000", Error) {
+	if hasFinding(lint(createParsedTestCert(t, "example.com", "Test Org", "US", nil), p), "EMPTYISSUER-FORBIDDEN", Error) {
 		t.Error("a populated issuer must not be reported as empty")
 	}
 }
@@ -1055,10 +1116,10 @@ func TestLintProfileWithoutAlgorithmsPermitsNone(t *testing.T) {
 	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
 	findings := lint(cert, p)
 
-	if !hasFinding(findings, "SIGALG-001", Error) {
+	if !hasFinding(findings, "SIGALG-UNLISTED", Error) {
 		t.Error("a profile listing no signature algorithms must permit none")
 	}
-	if !hasFinding(findings, "PUBKEY-001", Error) {
+	if !hasFinding(findings, "PUBKEY-UNLISTED", Error) {
 		t.Error("a profile listing no public key algorithms must permit none")
 	}
 }
@@ -1070,7 +1131,7 @@ func TestLintSerialNumberOK(t *testing.T) {
 
 	cert, _ := createTestCert("example.com", "Test Org", "US", 30, false, nil)
 
-	if !hasFinding(section7.Lint(cert, p), "SERIAL-001", section7.Info) {
+	if !hasFinding(section7.Lint(cert, p), "SERIAL-OK", section7.Info) {
 		t.Error("a positive serial number should satisfy RFC 5280")
 	}
 }
@@ -1081,7 +1142,7 @@ func TestLintSerialNumberZeroRejected(t *testing.T) {
 	cert, _ := createTestCert("example.com", "Test Org", "US", 30, false, nil)
 	cert.SerialNumber = big.NewInt(0)
 
-	if !hasFinding(section7.Lint(cert, p), "SERIAL-001", section7.Error) {
+	if !hasFinding(section7.Lint(cert, p), "SERIAL-NOTPOSITIVE", section7.Error) {
 		t.Error("a zero serial number should be rejected even when the profile says nothing")
 	}
 }
@@ -1103,7 +1164,7 @@ func TestLintSerialNumberNegativeParsed(t *testing.T) {
 		t.Fatalf("parsing a negative serial number: %v", err)
 	}
 
-	if !hasFinding(section7.Lint(cert, section7.Profile{}), "SERIAL-001", section7.Error) {
+	if !hasFinding(section7.Lint(cert, section7.Profile{}), "SERIAL-NOTPOSITIVE", section7.Error) {
 		t.Error("a negative serial number should be reported")
 	}
 }
@@ -1124,7 +1185,7 @@ func TestLintSerialNumberOctets(t *testing.T) {
 		errors []string
 	}{
 		{"159 bits is 20 octets", 159, nil},
-		{"160 bits is 21 octets", 160, []string{"SERIAL-001", "SERIAL-002"}},
+		{"160 bits is 21 octets", 160, []string{"SERIAL-TOOMANYOCTETS", "SERIAL-TOOMANYBITS"}},
 		{"1 bit is 1 octet", 1, nil},
 	}
 	for _, tt := range tests {
@@ -1167,8 +1228,8 @@ func TestLintSerialNumberMinimumBitLength(t *testing.T) {
 			cert, _ := createTestCert("example.com", "Test Org", "US", 30, false, nil)
 			cert.SerialNumber = new(big.Int).Lsh(big.NewInt(1), tt.bits-1)
 
-			if got := hasFinding(section7.Lint(cert, p), "SERIAL-003", section7.Error); got != tt.wantErr {
-				t.Errorf("SERIAL-003 error = %v, want %v", got, tt.wantErr)
+			if got := hasFinding(section7.Lint(cert, p), "SERIAL-TOOFEWBITS", section7.Error); got != tt.wantErr {
+				t.Errorf("SERIAL-TOOFEWBITS error = %v, want %v", got, tt.wantErr)
 			}
 		})
 	}
@@ -1193,7 +1254,7 @@ func TestLintCriticalityCheckedForAllExtensions(t *testing.T) {
 
 	found := false
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "EXT-002" && f.Severity == section7.Error &&
+		if f.RuleID == "CRITICAL-MISMATCH" && f.Severity == section7.Error &&
 			strings.Contains(f.Message, "subject_key_identifier") {
 			found = true
 		}
@@ -1217,7 +1278,7 @@ func TestLintCriticalityAcceptedForAllExtensions(t *testing.T) {
 	cert := createCertWithSKI(t)
 
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "EXT-002" && f.Severity == section7.Error {
+		if f.RuleID == "CRITICAL-MISMATCH" && f.Severity == section7.Error {
 			t.Errorf("a matching criticality must not be reported, got: %s", f)
 		}
 	}
@@ -1239,7 +1300,7 @@ func TestLintCriticalityCheckedForOIDKeyedExtension(t *testing.T) {
 
 	found := false
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "EXT-002" && f.Severity == section7.Error {
+		if f.RuleID == "CRITICAL-MISMATCH" && f.Severity == section7.Error {
 			found = true
 		}
 	}
@@ -1264,10 +1325,10 @@ func TestLintAbsentListedExtensionReported(t *testing.T) {
 
 	found := false
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "EXT-010" && strings.Contains(f.Message, "name_constraints") {
+		if f.RuleID == "PRESENCE-NOTE" && strings.Contains(f.Message, "name_constraints") {
 			found = true
 		}
-		if f.RuleID == "EXT-002" && strings.Contains(f.Message, "name_constraints") {
+		if strings.HasPrefix(f.RuleID, "CRITICAL-") && strings.Contains(f.Message, "name_constraints") {
 			t.Errorf("an absent extension must not be judged on criticality, got: %s", f)
 		}
 	}
@@ -1294,7 +1355,7 @@ func TestLintRequiredExtensionMissing(t *testing.T) {
 
 	found := false
 	for _, f := range lint(cert, p) {
-		if f.RuleID == "EXT-011" && f.Severity == Error &&
+		if f.RuleID == "PRESENCE-MISSING" && f.Severity == Error &&
 			strings.Contains(f.Message, "subject_key_identifier") {
 			found = true
 		}
@@ -1318,11 +1379,11 @@ func TestLintOptionalExtensionMissing(t *testing.T) {
 	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
 
 	for _, f := range lint(cert, p) {
-		if f.RuleID == "EXT-011" {
+		if f.RuleID == "PRESENCE-MISSING" {
 			t.Errorf("an absent extension marked required: false must not error, got: %s", f)
 		}
 	}
-	if !hasFinding(lint(cert, p), "EXT-010", Info) {
+	if !hasFinding(lint(cert, p), "PRESENCE-NOTE", Info) {
 		t.Error("an absent optional extension should still be reported as permitted-but-absent")
 	}
 }
@@ -1342,7 +1403,7 @@ func TestLintRequiredExtensionPresent(t *testing.T) {
 	cert := createCertWithSKI(t)
 
 	for _, f := range lint(cert, p) {
-		if f.RuleID == "EXT-011" {
+		if f.RuleID == "PRESENCE-MISSING" {
 			t.Errorf("a present required extension must not be reported, got: %s", f)
 		}
 	}
@@ -1406,7 +1467,7 @@ func TestLintAccessDescriptionMissingRequired(t *testing.T) {
 
 	found := false
 	for _, f := range lint(cert, p) {
-		if f.RuleID == "EXT-012" && f.Severity == Error && strings.Contains(f.Message, "id-ad-ocsp") {
+		if f.RuleID == "ACCESS-MISSING" && f.Severity == Error && strings.Contains(f.Message, "id-ad-ocsp") {
 			found = true
 		}
 	}
@@ -1427,7 +1488,7 @@ func TestLintAccessDescriptionNotListed(t *testing.T) {
 
 	found := false
 	for _, f := range lint(cert, p) {
-		if f.RuleID == "EXT-013" && f.Severity == Error && strings.Contains(f.Message, "id-ad-ocsp") {
+		if f.RuleID == "ACCESS-UNLISTED" && f.Severity == Error && strings.Contains(f.Message, "id-ad-ocsp") {
 			found = true
 		}
 	}
@@ -1546,11 +1607,11 @@ func TestLintUniqueIdentifiersRejected(t *testing.T) {
 
 			var got []string
 			for _, f := range lint(cert, p) {
-				if f.RuleID != "UNIQUEID-001" {
+				if !strings.HasPrefix(f.RuleID, "UNIQUEID-") {
 					continue
 				}
 				if f.Severity != Error {
-					t.Errorf("UNIQUEID-001 should be an error, got: %s", f)
+					t.Errorf("%s should be an error, got: %s", f.RuleID, f)
 				}
 				for _, field := range []string{"issuerUniqueID", "subjectUniqueID"} {
 					if strings.Contains(f.Message, field) {
@@ -1584,9 +1645,18 @@ func TestLintFindingsFollowCertificateOrder(t *testing.T) {
 		},
 	}
 
+	// Several prefixes report on the same certificate field.
+	field := map[string]string{
+		"EMPTYISSUER": "ISSUER", "EMPTYSUBJECT": "SUBJECT", "KEYSIZE": "PUBKEY", "CURVE": "PUBKEY",
+		"CA": "EXT", "CRITICAL": "EXT", "PRESENCE": "EXT", "ACCESS": "EXT", "CRLDP": "EXT",
+		"GENERALNAME": "EXT", "EKU": "EXT", "CERTPOLICIES": "EXT", "KEYUSAGE": "EXT",
+	}
 	first := map[string]int{}
 	for i, f := range lint(createCertWithSKI(t), p) {
 		prefix, _, _ := strings.Cut(f.RuleID, "-")
+		if g, ok := field[prefix]; ok {
+			prefix = g
+		}
 		if _, seen := first[prefix]; !seen {
 			first[prefix] = i
 		}
@@ -1699,11 +1769,11 @@ func TestLintCriticalityOptionalAcceptsNonCritical(t *testing.T) {
 	cert := createCertWithSKI(t)
 
 	for _, f := range lint(cert, p) {
-		if f.RuleID == "EXT-002" && f.Severity == Error {
+		if f.RuleID == "CRITICAL-MISMATCH" && f.Severity == Error {
 			t.Errorf("critical: optional must accept a non-critical extension, got: %s", f)
 		}
 	}
-	if !hasFinding(lint(cert, p), "EXT-002", Info) {
+	if !hasFinding(lint(cert, p), "CRITICAL-OK", Info) {
 		t.Error("critical: optional should still report the observed criticality")
 	}
 }
@@ -1724,7 +1794,7 @@ func TestLintCriticalityOptionalAcceptsCritical(t *testing.T) {
 	cert := createParsedTestCert(t, "example.com", "Test Org", "US", nil)
 
 	for _, f := range lint(cert, p) {
-		if f.RuleID == "EXT-002" && f.Severity == Error {
+		if f.RuleID == "CRITICAL-MISMATCH" && f.Severity == Error {
 			t.Errorf("critical: optional must accept a critical extension, got: %s", f)
 		}
 	}
@@ -1805,7 +1875,7 @@ func TestLintPolicyUnderArcAccepted(t *testing.T) {
 
 	found := false
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "EXT-016" && strings.Contains(f.Message, "permitted by arc") {
+		if f.RuleID == "CERTPOLICIES-OK" && strings.Contains(f.Message, "permitted by arc") {
 			found = true
 		}
 	}
@@ -1822,30 +1892,32 @@ func TestLintProfileVersion(t *testing.T) {
 	tests := []struct {
 		name     string
 		version  time.Time
+		rule     string
 		severity Severity
 	}{
-		{"older version", cert.NotBefore.Add(-time.Hour), Info},
-		{"version equals notBefore", cert.NotBefore, Info},
-		{"newer version", cert.NotBefore.Add(time.Hour), Error},
-		{"no version", time.Time{}, ""},
+		{"older version", cert.NotBefore.Add(-time.Hour), "PROFILE-OK", Info},
+		{"version equals notBefore", cert.NotBefore, "PROFILE-OK", Info},
+		{"newer version", cert.NotBefore.Add(time.Hour), "PROFILE-TOONEW", Error},
+		{"no version", time.Time{}, "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := section7.Profile{Profile: section7.Meta{Version: section7.ProfileVersion{Time: tt.version}}}
+			var rule string
 			var got Severity
 			for _, f := range lint(cert, p) {
-				if f.RuleID == "PROFILE-002" {
-					got = f.Severity
+				if strings.HasPrefix(f.RuleID, "PROFILE-") {
+					rule, got = f.RuleID, f.Severity
 				}
 			}
-			if got != tt.severity {
-				t.Errorf("PROFILE-002 severity %q, want %q", got, tt.severity)
+			if rule != tt.rule || got != tt.severity {
+				t.Errorf("got %q %q, want %q %q", rule, got, tt.rule, tt.severity)
 			}
 		})
 	}
 }
 
-// TestLintPolicyOIDMissingListsFound verifies the POLICY-001 error names the
+// TestLintPolicyOIDMissingListsFound verifies the POLICY-MISSING error names the
 // policy OIDs the certificate does carry, or says it carries none.
 func TestLintPolicyOIDMissingListsFound(t *testing.T) {
 	p := section7.Profile{Profile: section7.Meta{
@@ -1865,12 +1937,12 @@ func TestLintPolicyOIDMissingListsFound(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ok := false
 			for _, f := range lint(tt.cert, p) {
-				if f.RuleID == "POLICY-001" && f.Severity == Error && strings.HasSuffix(f.Message, tt.found) {
+				if f.RuleID == "POLICY-MISSING" && f.Severity == Error && strings.HasSuffix(f.Message, tt.found) {
 					ok = true
 				}
 			}
 			if !ok {
-				t.Errorf("expected a POLICY-001 error ending %q", tt.found)
+				t.Errorf("expected a POLICY-MISSING error ending %q", tt.found)
 			}
 		})
 	}
@@ -1883,7 +1955,7 @@ func TestLintPolicyOutsideArcRejected(t *testing.T) {
 
 	found := false
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "EXT-016" && f.Severity == section7.Error && strings.Contains(f.Message, "1.2.3.4.5") {
+		if f.RuleID == "CERTPOLICIES-UNLISTED" && f.Severity == section7.Error && strings.Contains(f.Message, "1.2.3.4.5") {
 			found = true
 		}
 	}
@@ -1900,7 +1972,7 @@ func TestLintPolicyArcRespectsComponentBoundary(t *testing.T) {
 
 	found := false
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "EXT-016" && f.Severity == section7.Error && strings.Contains(f.Message, "64499") {
+		if f.RuleID == "CERTPOLICIES-UNLISTED" && f.Severity == section7.Error && strings.Contains(f.Message, "64499") {
 			found = true
 		}
 	}
@@ -2059,7 +2131,7 @@ func TestLintPrecertificateWithSCTsRejected(t *testing.T) {
 
 	found := false
 	for _, f := range section7.Lint(cert, ctProfile()) {
-		if f.RuleID == "EXT-017" && f.Severity == section7.Error &&
+		if f.RuleID == "PRESENCE-FORBIDDEN" && f.Severity == section7.Error &&
 			strings.Contains(f.Message, "signed_certificate_timestamps") {
 			found = true
 		}
@@ -2076,7 +2148,7 @@ func TestLintFinalCertificateMissingSCTsRejected(t *testing.T) {
 
 	found := false
 	for _, f := range section7.Lint(cert, ctProfile()) {
-		if f.RuleID == "EXT-011" && f.Severity == section7.Error &&
+		if f.RuleID == "PRESENCE-MISSING" && f.Severity == section7.Error &&
 			strings.Contains(f.Message, "signed_certificate_timestamps") {
 			found = true
 		}
@@ -2093,7 +2165,7 @@ func TestLintPoisonMakesItAPrecertificate(t *testing.T) {
 	cert := certWithCTExtensions(t, true, false)
 
 	for _, f := range section7.Lint(cert, ctProfile()) {
-		if f.RuleID == "EXT-011" && strings.Contains(f.Message, "signed_certificate_timestamps") {
+		if f.RuleID == "PRESENCE-MISSING" && strings.Contains(f.Message, "signed_certificate_timestamps") {
 			t.Errorf("a Precertificate must not be required to carry SCTs, got: %s", f)
 		}
 	}
@@ -2116,7 +2188,7 @@ func TestLintPrecertificateWarnsWhenProfileSilent(t *testing.T) {
 
 	found := false
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "CT-001" && f.Severity == section7.Warning {
+		if f.RuleID == "CT-UNDESCRIBED" && f.Severity == section7.Warning {
 			found = true
 		}
 	}
@@ -2196,7 +2268,7 @@ func TestLintGeneralNameTypeNotListed(t *testing.T) {
 
 	found := false
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "EXT-019" && f.Severity == section7.Error && strings.Contains(f.Message, "rfc822Name") {
+		if f.RuleID == "GENERALNAME-UNLISTED" && f.Severity == section7.Error && strings.Contains(f.Message, "rfc822Name") {
 			found = true
 		}
 	}
@@ -2213,7 +2285,7 @@ func TestLintGeneralNameTypeRequiredMissing(t *testing.T) {
 
 	found := false
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "EXT-018" && f.Severity == section7.Error && strings.Contains(f.Message, "dNSName") {
+		if f.RuleID == "GENERALNAME-MISSING" && f.Severity == section7.Error && strings.Contains(f.Message, "dNSName") {
 			found = true
 		}
 	}
@@ -2361,7 +2433,7 @@ func TestLintCRLDistributionPointUnlistedNameType(t *testing.T) {
 
 	found := false
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "EXT-021" && f.Severity == section7.Error && strings.Contains(f.Message, "directoryName") {
+		if f.RuleID == "CRLDP-UNLISTED" && f.Severity == section7.Error && strings.Contains(f.Message, "directoryName") {
 			found = true
 		}
 	}
@@ -2382,7 +2454,7 @@ func TestLintCRLDistributionPointUndeclaredReasons(t *testing.T) {
 
 	found := false
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "EXT-021" && f.Severity == section7.Error && strings.Contains(f.Message, "reasons") {
+		if f.RuleID == "CRLDP-REASONS" && f.Severity == section7.Error && strings.Contains(f.Message, "reasons") {
 			found = true
 		}
 	}
@@ -2402,7 +2474,7 @@ func TestLintCRLDistributionPointDeclaredReasons(t *testing.T) {
 	cert := certWithCRLDP(t, body)
 
 	for _, f := range section7.Lint(cert, p) {
-		if f.RuleID == "EXT-021" {
+		if f.RuleID == "CRLDP-REASONS" {
 			t.Errorf("a declared reasons field must not be reported, got: %s", f)
 		}
 	}

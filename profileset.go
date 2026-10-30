@@ -88,7 +88,7 @@ func (s *ProfileSet) SelectProfile(cert *x509.Certificate) (string, *Loaded, *Fi
 			shared = "version " + latestVersion.Format(time.RFC3339Nano)
 		}
 		return "", nil, &Finding{
-			RuleID:   "PROFILE-003",
+			RuleID:   "PROFILE-AMBIGUOUS",
 			Severity: Error,
 			Message: fmt.Sprintf(
 				"more than one profile recognized by the certificate's policy OIDs has the latest "+
@@ -97,7 +97,7 @@ func (s *ProfileSet) SelectProfile(cert *x509.Certificate) (string, *Loaded, *Fi
 		}
 	case len(tooNew) > 0:
 		return "", nil, &Finding{
-			RuleID:   "PROFILE-002",
+			RuleID:   "PROFILE-TOONEW",
 			Severity: Error,
 			Message: fmt.Sprintf(
 				"no profile recognized by the certificate's policy OIDs has a version not later than its notBefore %s (found: %s)",
@@ -109,7 +109,7 @@ func (s *ProfileSet) SelectProfile(cert *x509.Certificate) (string, *Loaded, *Fi
 			found = strings.Join(oids, ", ")
 		}
 		return "", nil, &Finding{
-			RuleID:   "PROFILE-001",
+			RuleID:   "PROFILE-NOMATCH",
 			Severity: Error,
 			Message: fmt.Sprintf(
 				"no profile is recognized by the certificate's policy OIDs (found: %s)", found),
