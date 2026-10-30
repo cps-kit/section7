@@ -2,12 +2,11 @@ package section7
 
 import (
 	"crypto/ecdsa"
-	"crypto/ed25519"
-	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"fmt"
+	"math/big"
 	"slices"
 	"strings"
 	"time"
@@ -457,19 +456,35 @@ type PublicKeyInfo struct {
 	Curve string
 }
 
-// CertPublicKey describes the certificate's subject public key. The second
-// result reports whether the key algorithm was recognized.
+// CertPublicKey describes the certificate's subject public key. It reads the
+// raw SubjectPublicKeyInfo, so that an algorithm crypto/x509 does not support
+// is still reported by OID. The second result reports whether it could be read.
 func CertPublicKey(cert *x509.Certificate) (PublicKeyInfo, bool) {
-	switch key := cert.PublicKey.(type) {
-	case *rsa.PublicKey:
-		return PublicKeyInfo{OID: "1.2.840.113549.1.1.1", Bits: key.N.BitLen()}, true
-	case *ecdsa.PublicKey:
-		return PublicKeyInfo{OID: ECPublicKeyOID, Curve: key.Curve.Params().Name}, true
-	case ed25519.PublicKey:
-		return PublicKeyInfo{OID: "1.3.101.112"}, true
-	default:
+	var spki struct {
+		Algorithm pkix.AlgorithmIdentifier
+		PublicKey asn1.BitString
+	}
+	if rest, err := asn1.Unmarshal(cert.RawSubjectPublicKeyInfo, &spki); err != nil || len(rest) > 0 {
 		return PublicKeyInfo{}, false
 	}
+	info := PublicKeyInfo{OID: spki.Algorithm.Algorithm.String()}
+
+	switch info.OID {
+	case KeyAlgorithmInfo["rsaEncryption"].OID, KeyAlgorithmInfo["id-RSASSA-PSS"].OID:
+		// Both carry an RSAPublicKey; crypto/x509 parses it only for rsaEncryption.
+		var key struct{ N, E *big.Int }
+		if rest, err := asn1.Unmarshal(spki.PublicKey.RightAlign(), &key); err != nil || len(rest) > 0 {
+			return PublicKeyInfo{}, false
+		}
+		info.Bits = key.N.BitLen()
+	case ECPublicKeyOID:
+		key, ok := cert.PublicKey.(*ecdsa.PublicKey)
+		if !ok {
+			return PublicKeyInfo{}, false
+		}
+		info.Curve = key.Curve.Params().Name
+	}
+	return info, true
 }
 
 // CertUniqueIDs reports whether the certificate carries issuerUniqueID and
@@ -653,24 +668,24 @@ func signatureFindings(cert *x509.Certificate, req SignatureAlgorithm) []Finding
 
 	oid, ok := CertSignatureAlgorithmOID(cert)
 	if !ok {
-		add(Error, "SIGALG-001", "the certificate's signature algorithm could not be read")
+		add(Error, "SIGALG-UNREADABLE", "the certificate's signature algorithm could not be read")
 		return findings
 	}
 
 	for _, name := range req.Allowed {
 		allowedOID, known := SignatureAlgorithmOID(name)
 		if !known {
-			add(Warning, "SIGALG-001", fmt.Sprintf("unknown signature algorithm '%s' in profile", name))
+			add(Warning, "SIGALG-UNKNOWN", fmt.Sprintf("unknown signature algorithm '%s' in profile", name))
 			continue
 		}
 		if allowedOID == oid {
-			add(Info, "SIGALG-001", fmt.Sprintf("signature algorithm %s OK",
+			add(Info, "SIGALG-OK", fmt.Sprintf("signature algorithm %s is permitted",
 				AlgorithmDisplay(SignatureAlgorithmInfo, oid)))
 			return findings
 		}
 	}
 
-	add(Error, "SIGALG-001", fmt.Sprintf(
+	add(Error, "SIGALG-UNLISTED", fmt.Sprintf(
 		"signature algorithm %s is not listed in the profile",
 		AlgorithmDisplay(SignatureAlgorithmInfo, oid)))
 	return findings
@@ -686,9 +701,9 @@ func publicKeyFindings(cert *x509.Certificate, req PublicKey) []Finding {
 		findings = append(findings, Finding{RuleID: ruleID, Severity: sev, Message: msg})
 	}
 
-	info, known := CertPublicKey(cert)
-	if !known {
-		add(Error, "PUBKEY-001", "the certificate's subject public key algorithm is not recognized")
+	info, ok := CertPublicKey(cert)
+	if !ok {
+		add(Error, "PUBKEY-UNREADABLE", "the certificate's subject public key could not be read")
 		return findings
 	}
 	display := AlgorithmDisplay(KeyAlgorithmInfo, info.OID)
@@ -696,14 +711,14 @@ func publicKeyFindings(cert *x509.Certificate, req PublicKey) []Finding {
 	for _, alg := range req.Algorithms {
 		allowedOID, ok := KeyAlgorithmOID(alg.Name)
 		if !ok {
-			add(Warning, "PUBKEY-001", fmt.Sprintf("unknown public key algorithm '%s' in profile", alg.Name))
+			add(Warning, "PUBKEY-UNKNOWN", fmt.Sprintf("unknown public key algorithm '%s' in profile", alg.Name))
 			continue
 		}
 		if allowedOID != info.OID {
 			continue
 		}
 
-		add(Info, "PUBKEY-001", fmt.Sprintf("public key algorithm %s OK", display))
+		add(Info, "PUBKEY-OK", fmt.Sprintf("public key algorithm %s is permitted", display))
 
 		// Sizes and curves are exhaustive too: an empty list permits none.
 		if info.Bits > 0 {
@@ -715,9 +730,9 @@ func publicKeyFindings(cert *x509.Certificate, req PublicKey) []Finding {
 				}
 			}
 			if permitted {
-				add(Info, "PUBKEY-002", fmt.Sprintf("public key size %d bits OK", info.Bits))
+				add(Info, "KEYSIZE-OK", fmt.Sprintf("public key size %d bits is permitted", info.Bits))
 			} else {
-				add(Error, "PUBKEY-002", fmt.Sprintf(
+				add(Error, "KEYSIZE-UNLISTED", fmt.Sprintf(
 					"public key size is %d bits, which is not listed in the profile", info.Bits))
 			}
 		}
@@ -731,9 +746,9 @@ func publicKeyFindings(cert *x509.Certificate, req PublicKey) []Finding {
 				}
 			}
 			if permitted {
-				add(Info, "PUBKEY-003", fmt.Sprintf("public key curve %s OK", info.Curve))
+				add(Info, "CURVE-OK", fmt.Sprintf("public key curve %s is permitted", info.Curve))
 			} else {
-				add(Error, "PUBKEY-003", fmt.Sprintf(
+				add(Error, "CURVE-UNLISTED", fmt.Sprintf(
 					"public key curve %s is not listed in the profile", info.Curve))
 			}
 		}
@@ -741,7 +756,7 @@ func publicKeyFindings(cert *x509.Certificate, req PublicKey) []Finding {
 		return findings
 	}
 
-	add(Error, "PUBKEY-001", fmt.Sprintf("public key algorithm %s is not listed in the profile", display))
+	add(Error, "PUBKEY-UNLISTED", fmt.Sprintf("public key algorithm %s is not listed in the profile", display))
 	return findings
 }
 
@@ -770,7 +785,7 @@ func dnFindings(dn DistinguishedName, values map[string][]string, presentOIDs []
 		label := SubjectAttributeLabel(fieldName)
 
 		if req.Required && !present {
-			add(Error, prefix+"-001", fmt.Sprintf("required %s attribute '%s' is missing", noun, label))
+			add(Error, prefix+"-MISSING", fmt.Sprintf("required %s attribute '%s' is missing", noun, label))
 			continue
 		}
 		if !present {
@@ -784,19 +799,19 @@ func dnFindings(dn DistinguishedName, values map[string][]string, presentOIDs []
 		val := vals[0]
 		valLen := utf8.RuneCountInString(val)
 		if req.Length.Min != nil && valLen < *req.Length.Min {
-			add(Error, prefix+"-002", fmt.Sprintf(
+			add(Error, prefix+"-TOOSHORT", fmt.Sprintf(
 				"%s attribute '%s' value %q is shorter than minimum length %d (actual: %d characters)",
 				noun, label, val, *req.Length.Min, valLen))
 		}
 		if req.Length.Max != nil && valLen > *req.Length.Max {
-			add(Error, prefix+"-003", fmt.Sprintf(
+			add(Error, prefix+"-TOOLONG", fmt.Sprintf(
 				"%s attribute '%s' value %q exceeds maximum length %d (actual: %d characters)",
 				noun, label, val, *req.Length.Max, valLen))
 		}
 
 		if (req.Length.Min == nil || valLen >= *req.Length.Min) &&
 			(req.Length.Max == nil || valLen <= *req.Length.Max) {
-			add(Info, prefix+"-OK", fmt.Sprintf("%s attribute '%s' OK (%q)", noun, label, val))
+			add(Info, prefix+"-OK", fmt.Sprintf("%s attribute '%s' value %q conforms to the profile", noun, label, val))
 		}
 	}
 
@@ -812,7 +827,7 @@ func dnFindings(dn DistinguishedName, values map[string][]string, presentOIDs []
 	}
 	for _, oid := range presentOIDs {
 		if !allowed[oid] {
-			add(Error, prefix+"-004", fmt.Sprintf(
+			add(Error, prefix+"-UNLISTED", fmt.Sprintf(
 				"%s attribute %s is present but not listed in the profile", noun, subjectAttrDisplay(oid)))
 		}
 	}
@@ -836,9 +851,9 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 	certKind := CertificateKind(cert)
 
 	if isPrecertificate {
-		add(Info, "CT-001", "certificate is a Precertificate (poison extension present)")
+		add(Info, "CT-NOTE", "certificate is a Precertificate (poison extension present)")
 		if !p.Requirements.CoversPrecertificates() {
-			add(Warning, "CT-001",
+			add(Warning, "CT-UNDESCRIBED",
 				"the profile does not describe Precertificates, so this certificate is being "+
 					"linted as though it were a final certificate")
 		}
@@ -848,14 +863,14 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 	policyOIDs := CertPolicyOIDs(cert)
 	if oid := p.Profile.RecognizedBy.PolicyOID; oid != "" {
 		if slices.Contains(policyOIDs, oid) {
-			add(Info, "POLICY-001", fmt.Sprintf(
+			add(Info, "POLICY-OK", fmt.Sprintf(
 				"certificate contains the profile Policy OID %s", oid))
 		} else {
 			found := "none"
 			if len(policyOIDs) > 0 {
 				found = strings.Join(policyOIDs, ", ")
 			}
-			add(Error, "POLICY-001", fmt.Sprintf(
+			add(Error, "POLICY-MISSING", fmt.Sprintf(
 				"certificate does not contain the required Policy OID %s (found: %s)", oid, found))
 		}
 	}
@@ -863,12 +878,12 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 	// ---- Profile version ----
 	if v := p.Profile.Version; !v.IsZero() {
 		if v.After(cert.NotBefore) {
-			add(Error, "PROFILE-002", fmt.Sprintf(
+			add(Error, "PROFILE-TOONEW", fmt.Sprintf(
 				"profile version %s is later than the certificate's notBefore %s",
 				v.Format(time.RFC3339Nano), cert.NotBefore.Format(time.RFC3339)))
 		} else {
-			add(Info, "PROFILE-002", fmt.Sprintf(
-				"profile version %s is not later than the certificate's notBefore %s OK",
+			add(Info, "PROFILE-OK", fmt.Sprintf(
+				"profile version %s is not later than the certificate's notBefore %s",
 				v.Format(time.RFC3339Nano), cert.NotBefore.Format(time.RFC3339)))
 		}
 	}
@@ -878,9 +893,9 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 	// ---- Version ----
 	if want := int(p.Requirements.Version); want > 0 {
 		if cert.Version == want {
-			add(Info, "VERSION-001", fmt.Sprintf("certificate is X.509v%d OK", cert.Version))
+			add(Info, "VERSION-OK", fmt.Sprintf("certificate is X.509v%d", cert.Version))
 		} else {
-			add(Error, "VERSION-001", fmt.Sprintf(
+			add(Error, "VERSION-MISMATCH", fmt.Sprintf(
 				"certificate is X.509v%d but the profile describes X.509v%d", cert.Version, want))
 		}
 	}
@@ -894,19 +909,19 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 	snLen := bitLength/8 + 1
 	switch {
 	case serial.Sign() <= 0:
-		add(Error, "SERIAL-001", fmt.Sprintf("serial number must be greater than zero, got %s", serial))
+		add(Error, "SERIAL-NOTPOSITIVE", fmt.Sprintf("serial number must be greater than zero, got %s", serial))
 	case snLen > 20:
-		add(Error, "SERIAL-001", fmt.Sprintf("serial number must not exceed 20 octets, got %d", snLen))
+		add(Error, "SERIAL-TOOMANYOCTETS", fmt.Sprintf("serial number must not exceed 20 octets, got %d", snLen))
 	default:
-		add(Info, "SERIAL-001", fmt.Sprintf("serial number OK (%d octets, %d bits)", snLen, bitLength))
+		add(Info, "SERIAL-OK", fmt.Sprintf("serial number is %d octets, %d bits", snLen, bitLength))
 	}
 	if maxBits := sn.MaximumBits(); bitLength > maxBits {
-		add(Error, "SERIAL-002", fmt.Sprintf(
+		add(Error, "SERIAL-TOOMANYBITS", fmt.Sprintf(
 			"serial number exceeds the profile limit of 2^%d (bit length: %d > %d)",
 			maxBits, bitLength, maxBits))
 	}
 	if minBits := sn.MinimumBits(); serial.Sign() > 0 && bitLength < minBits {
-		add(Error, "SERIAL-003", fmt.Sprintf(
+		add(Error, "SERIAL-TOOFEWBITS", fmt.Sprintf(
 			"serial number is shorter than the profile minimum of %d bits (bit length: %d < %d)",
 			minBits, bitLength, minBits))
 	}
@@ -918,7 +933,7 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 
 	// RFC 5280 4.1.2.4: the issuer field MUST contain a non-empty distinguished name.
 	if isEmptyName(cert.Issuer) {
-		add(Error, "ISSUER-000", "issuer distinguished name is empty")
+		add(Error, "EMPTYISSUER-FORBIDDEN", "issuer distinguished name is empty")
 	}
 	findings = append(findings, dnFindings(
 		p.Requirements.Issuer, IssuerValues(cert), CertIssuerAttributeOIDs(cert), "ISSUER", "issuer")...)
@@ -929,12 +944,12 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 		actual := cert.NotAfter.Sub(cert.NotBefore)
 		// Allow a 1-second rounding buffer
 		if actual > maxDur+time.Second {
-			add(Error, "VALIDITY-001", fmt.Sprintf(
+			add(Error, "VALIDITY-TOOLONG", fmt.Sprintf(
 				"validity period is %s, maximum allowed is %d days",
 				durationDays(actual), p.Requirements.Validity.MaximumDays))
 		} else {
-			add(Info, "VALIDITY-001", fmt.Sprintf(
-				"validity period OK (%s ≤ %d days)",
+			add(Info, "VALIDITY-OK", fmt.Sprintf(
+				"validity period is %s, within the maximum of %d days",
 				durationDays(actual), p.Requirements.Validity.MaximumDays))
 		}
 	}
@@ -946,11 +961,11 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 		critical, present := extIsCritical(cert, "subject_alt_name")
 		switch {
 		case !present:
-			add(Error, "SUBJECT-005", "subject is empty, so a subjectAltName extension is required")
+			add(Error, "EMPTYSUBJECT-NOSAN", "subject is empty, so a subjectAltName extension is required")
 		case !critical:
-			add(Error, "SUBJECT-005", "subject is empty, so the subjectAltName extension must be critical")
+			add(Error, "EMPTYSUBJECT-NONCRITICAL", "subject is empty, so the subjectAltName extension must be critical")
 		default:
-			add(Info, "SUBJECT-005", "subject is empty and subjectAltName is critical OK")
+			add(Info, "EMPTYSUBJECT-OK", "subject is empty and subjectAltName is critical")
 		}
 	}
 	findings = append(findings, dnFindings(
@@ -962,13 +977,13 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 	// ---- Unique identifiers ----
 	// The Baseline Requirements forbid both fields, whatever the profile says.
 	if issuerUID, subjectUID, ok := CertUniqueIDs(cert); !ok {
-		add(Error, "UNIQUEID-001", "the TBSCertificate could not be read to check for unique identifiers")
+		add(Error, "UNIQUEID-UNREADABLE", "the TBSCertificate could not be read to check for unique identifiers")
 	} else {
 		if issuerUID {
-			add(Error, "UNIQUEID-001", "certificate contains issuerUniqueID, which is not permitted")
+			add(Error, "UNIQUEID-ISSUER", "certificate contains issuerUniqueID, which is not permitted")
 		}
 		if subjectUID {
-			add(Error, "UNIQUEID-001", "certificate contains subjectUniqueID, which is not permitted")
+			add(Error, "UNIQUEID-SUBJECT", "certificate contains subjectUniqueID, which is not permitted")
 		}
 	}
 
@@ -978,10 +993,10 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 		// BasicConstraints — CA flag
 		if extName == "basic_constraints" && req.CA != nil {
 			if *req.CA != cert.IsCA {
-				add(Error, "EXT-001", fmt.Sprintf(
+				add(Error, "CA-MISMATCH", fmt.Sprintf(
 					"basicConstraints CA=%v but profile requires CA=%v", cert.IsCA, *req.CA))
 			} else {
-				add(Info, "EXT-001", fmt.Sprintf("basicConstraints CA=%v OK", cert.IsCA))
+				add(Info, "CA-OK", fmt.Sprintf("basicConstraints CA=%v", cert.IsCA))
 			}
 		}
 
@@ -989,32 +1004,32 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 		// Precertificate or a final certificate.
 		if critical, found := extIsCritical(cert, extName); found {
 			if req.Required.ForbiddenIn(isPrecertificate) {
-				add(Error, "EXT-017", fmt.Sprintf(
+				add(Error, "PRESENCE-FORBIDDEN", fmt.Sprintf(
 					"extension '%s' is present but must not appear in a %s (profile requires %s)",
 					extName, certKind, req.Required.Spelling()))
 			}
 			switch {
 			case !req.Critical.Allows(critical):
-				add(Error, "EXT-002", fmt.Sprintf(
+				add(Error, "CRITICAL-MISMATCH", fmt.Sprintf(
 					"extension '%s' critical=%v but profile requires critical=%s",
 					extName, critical, req.Critical.Spelling()))
 			case req.Critical == CriticalityOptional:
-				add(Info, "EXT-002", fmt.Sprintf(
-					"extension '%s' critical=%v OK (either is permitted)", extName, critical))
+				add(Info, "CRITICAL-OK", fmt.Sprintf(
+					"extension '%s' critical=%v (either is permitted)", extName, critical))
 			default:
-				add(Info, "EXT-002", fmt.Sprintf("extension '%s' critical=%v OK", extName, critical))
+				add(Info, "CRITICAL-OK", fmt.Sprintf("extension '%s' critical=%v", extName, critical))
 			}
 		} else if req.Required.RequiredIn(isPrecertificate) {
-			add(Error, "EXT-011", fmt.Sprintf(
+			add(Error, "PRESENCE-MISSING", fmt.Sprintf(
 				"extension '%s' is required in a %s but is not present in the certificate",
 				extName, certKind))
 		} else if req.Required.ForbiddenIn(isPrecertificate) {
-			add(Info, "EXT-010", fmt.Sprintf(
+			add(Info, "PRESENCE-OK", fmt.Sprintf(
 				"extension '%s' is correctly absent from this %s", extName, certKind))
 		} else {
 			// Permitted but not mandated. Report the absence so that the
 			// checks skipped for it are not silent.
-			add(Info, "EXT-010", fmt.Sprintf(
+			add(Info, "PRESENCE-NOTE", fmt.Sprintf(
 				"extension '%s' is permitted by the profile but is not present in the certificate", extName))
 		}
 
@@ -1031,7 +1046,7 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 				for _, ad := range req.AccessDescriptions {
 					oid, known := AccessMethodOID(ad.AccessMethod)
 					if !known {
-						add(Warning, "EXT-012", fmt.Sprintf(
+						add(Warning, "ACCESS-UNKNOWN", fmt.Sprintf(
 							"unknown access method '%s' in profile", ad.AccessMethod))
 						continue
 					}
@@ -1039,15 +1054,15 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 
 					switch {
 					case present[oid]:
-						add(Info, "EXT-012", fmt.Sprintf(
-							"extension '%s' access method %s present OK",
+						add(Info, "ACCESS-OK", fmt.Sprintf(
+							"extension '%s' access method %s is present",
 							extName, accessMethodDisplay(oid)))
 					case ad.Required:
-						add(Error, "EXT-012", fmt.Sprintf(
+						add(Error, "ACCESS-MISSING", fmt.Sprintf(
 							"extension '%s' is missing required access method %s",
 							extName, accessMethodDisplay(oid)))
 					default:
-						add(Info, "EXT-012", fmt.Sprintf(
+						add(Info, "ACCESS-NOTE", fmt.Sprintf(
 							"extension '%s' optional access method %s is not present",
 							extName, accessMethodDisplay(oid)))
 					}
@@ -1056,7 +1071,7 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 				// The access method list is exhaustive.
 				for _, oid := range methods {
 					if !allowed[oid] {
-						add(Error, "EXT-013", fmt.Sprintf(
+						add(Error, "ACCESS-UNLISTED", fmt.Sprintf(
 							"extension '%s' contains access method %s which is not listed in the profile",
 							extName, accessMethodDisplay(oid)))
 					}
@@ -1076,7 +1091,7 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 						if tag, known := GeneralNameTag(v); known {
 							allowedTags[tag] = true
 						} else {
-							add(Warning, "EXT-020", fmt.Sprintf(
+							add(Warning, "CRLDP-UNKNOWN", fmt.Sprintf(
 								"unknown general name type '%s' in profile", v))
 						}
 					}
@@ -1092,40 +1107,40 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 					}
 				}
 				if required && len(points) == 0 {
-					add(Error, "EXT-020", fmt.Sprintf(
+					add(Error, "CRLDP-MISSING", fmt.Sprintf(
 						"extension '%s' contains no distribution point, but the profile requires one",
 						extName))
 				}
 
 				for i, dp := range points {
 					if dp.HasNameRelativeToCRLIssuer && !allowRelative {
-						add(Error, "EXT-021", fmt.Sprintf(
+						add(Error, "CRLDP-RELATIVENAME", fmt.Sprintf(
 							"extension '%s' distribution point %d names the CRL relative to its issuer, "+
 								"which is not described in the profile", extName, i+1))
 					}
 					for _, tag := range dp.FullNameTags {
 						if !allowedTags[tag] {
-							add(Error, "EXT-021", fmt.Sprintf(
+							add(Error, "CRLDP-UNLISTED", fmt.Sprintf(
 								"extension '%s' distribution point %d contains name type %s "+
 									"which is not listed in the profile",
 								extName, i+1, generalNameDisplay(tag)))
 						}
 					}
 					if dp.HasReasons && !allowReasons {
-						add(Error, "EXT-021", fmt.Sprintf(
+						add(Error, "CRLDP-REASONS", fmt.Sprintf(
 							"extension '%s' distribution point %d specifies reasons, "+
 								"which is not described in the profile", extName, i+1))
 					}
 					if dp.HasCRLIssuer && !allowIssuer {
-						add(Error, "EXT-021", fmt.Sprintf(
+						add(Error, "CRLDP-CRLISSUER", fmt.Sprintf(
 							"extension '%s' distribution point %d specifies a CRL issuer, "+
 								"which is not described in the profile", extName, i+1))
 					}
 				}
 
 				if len(points) > 0 {
-					add(Info, "EXT-020", fmt.Sprintf(
-						"extension '%s' contains %d distribution point(s) OK", extName, len(points)))
+					add(Info, "CRLDP-OK", fmt.Sprintf(
+						"extension '%s' contains %d distribution point(s)", extName, len(points)))
 				}
 			}
 		}
@@ -1143,31 +1158,31 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 				for _, required := range req.RequiredValues {
 					tag, known := GeneralNameTag(required)
 					if !known {
-						add(Warning, "EXT-018", fmt.Sprintf(
+						add(Warning, "GENERALNAME-UNKNOWN", fmt.Sprintf(
 							"unknown general name type '%s' in profile", required))
 						continue
 					}
 					allowed[tag] = true
 					if !present[tag] {
-						add(Error, "EXT-018", fmt.Sprintf(
+						add(Error, "GENERALNAME-MISSING", fmt.Sprintf(
 							"extension '%s' is missing required name type %s",
 							extName, generalNameDisplay(tag)))
 					} else {
-						add(Info, "EXT-018", fmt.Sprintf(
-							"extension '%s' name type %s present OK", extName, generalNameDisplay(tag)))
+						add(Info, "GENERALNAME-OK", fmt.Sprintf(
+							"extension '%s' name type %s is present", extName, generalNameDisplay(tag)))
 					}
 				}
 				for _, opt := range req.OptionalValues {
 					tag, known := GeneralNameTag(opt)
 					if !known {
-						add(Warning, "EXT-018", fmt.Sprintf(
+						add(Warning, "GENERALNAME-UNKNOWN", fmt.Sprintf(
 							"unknown general name type '%s' in profile", opt))
 						continue
 					}
 					allowed[tag] = true
 					if present[tag] {
-						add(Info, "EXT-018", fmt.Sprintf(
-							"extension '%s' optional name type %s present OK",
+						add(Info, "GENERALNAME-OK", fmt.Sprintf(
+							"extension '%s' optional name type %s is present",
 							extName, generalNameDisplay(tag)))
 					}
 				}
@@ -1175,7 +1190,7 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 				// The name type list is exhaustive.
 				for _, tag := range tags {
 					if !allowed[tag] {
-						add(Error, "EXT-019", fmt.Sprintf(
+						add(Error, "GENERALNAME-UNLISTED", fmt.Sprintf(
 							"extension '%s' contains name type %s which is not listed in the profile",
 							extName, generalNameDisplay(tag)))
 					}
@@ -1194,26 +1209,26 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 			for _, required := range req.RequiredValues {
 				oid, known := ExtKeyUsageOID(required)
 				if !known {
-					add(Warning, "EXT-003", fmt.Sprintf("unknown EKU value '%s' in profile", required))
+					add(Warning, "EKU-UNKNOWN", fmt.Sprintf("unknown EKU value '%s' in profile", required))
 					continue
 				}
 				allowed[oid] = true
 				if !present[oid] {
-					add(Error, "EXT-003", fmt.Sprintf(
+					add(Error, "EKU-MISSING", fmt.Sprintf(
 						"required EKU '%s' is missing from certificate", EKUDisplay(oid)))
 				} else {
-					add(Info, "EXT-003", fmt.Sprintf("EKU '%s' present OK", EKUDisplay(oid)))
+					add(Info, "EKU-OK", fmt.Sprintf("EKU '%s' is present", EKUDisplay(oid)))
 				}
 			}
 			for _, opt := range req.OptionalValues {
 				oid, known := ExtKeyUsageOID(opt)
 				if !known {
-					add(Warning, "EXT-005", fmt.Sprintf("unknown EKU value '%s' in profile", opt))
+					add(Warning, "EKU-UNKNOWN", fmt.Sprintf("unknown EKU value '%s' in profile", opt))
 					continue
 				}
 				allowed[oid] = true
 				if present[oid] {
-					add(Info, "EXT-005", fmt.Sprintf("optional EKU '%s' present OK", EKUDisplay(oid)))
+					add(Info, "EKU-OK", fmt.Sprintf("optional EKU '%s' is present", EKUDisplay(oid)))
 				}
 			}
 			// Any EKU not listed as required or optional, and not falling under
@@ -1223,11 +1238,11 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 					continue
 				}
 				if arc := MatchingArc(oid, req.OptionalArcs); arc != "" {
-					add(Info, "EXT-006", fmt.Sprintf(
+					add(Info, "EKU-OK", fmt.Sprintf(
 						"EKU '%s' is permitted by arc %s", EKUDisplay(oid), arc))
 					continue
 				}
-				add(Error, "EXT-006", fmt.Sprintf(
+				add(Error, "EKU-UNLISTED", fmt.Sprintf(
 					"EKU '%s' is present but not listed as required or optional in the profile",
 					EKUDisplay(oid)))
 			}
@@ -1244,26 +1259,26 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 			for _, required := range req.RequiredValues {
 				oid, known := PolicyOID(required)
 				if !known {
-					add(Warning, "EXT-014", fmt.Sprintf("unknown policy value '%s' in profile", required))
+					add(Warning, "CERTPOLICIES-UNKNOWN", fmt.Sprintf("unknown policy value '%s' in profile", required))
 					continue
 				}
 				allowed[oid] = true
 				if !present[oid] {
-					add(Error, "EXT-014", fmt.Sprintf(
+					add(Error, "CERTPOLICIES-MISSING", fmt.Sprintf(
 						"required certificate policy %s is missing from certificate", policyDisplay(oid)))
 				} else {
-					add(Info, "EXT-014", fmt.Sprintf("certificate policy %s present OK", policyDisplay(oid)))
+					add(Info, "CERTPOLICIES-OK", fmt.Sprintf("certificate policy %s is present", policyDisplay(oid)))
 				}
 			}
 			for _, opt := range req.OptionalValues {
 				oid, known := PolicyOID(opt)
 				if !known {
-					add(Warning, "EXT-015", fmt.Sprintf("unknown policy value '%s' in profile", opt))
+					add(Warning, "CERTPOLICIES-UNKNOWN", fmt.Sprintf("unknown policy value '%s' in profile", opt))
 					continue
 				}
 				allowed[oid] = true
 				if present[oid] {
-					add(Info, "EXT-015", fmt.Sprintf("optional certificate policy %s present OK", policyDisplay(oid)))
+					add(Info, "CERTPOLICIES-OK", fmt.Sprintf("optional certificate policy %s is present", policyDisplay(oid)))
 				}
 			}
 			// Any policy not listed as required or optional, and not falling
@@ -1273,11 +1288,11 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 					continue
 				}
 				if arc := MatchingArc(oid, req.OptionalArcs); arc != "" {
-					add(Info, "EXT-016", fmt.Sprintf(
+					add(Info, "CERTPOLICIES-OK", fmt.Sprintf(
 						"certificate policy %s is permitted by arc %s", policyDisplay(oid), arc))
 					continue
 				}
-				add(Error, "EXT-016", fmt.Sprintf(
+				add(Error, "CERTPOLICIES-UNLISTED", fmt.Sprintf(
 					"certificate policy %s is present but not listed as required or optional in the profile",
 					policyDisplay(oid)))
 			}
@@ -1288,23 +1303,23 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 			for _, required := range req.RequiredValues {
 				ku, known := keyUsageNames[required]
 				if !known {
-					add(Warning, "EXT-004", fmt.Sprintf("unknown KeyUsage name '%s' in profile", required))
+					add(Warning, "KEYUSAGE-UNKNOWN", fmt.Sprintf("unknown KeyUsage name '%s' in profile", required))
 					continue
 				}
 				if cert.KeyUsage&ku == 0 {
-					add(Error, "EXT-004", fmt.Sprintf("required KeyUsage '%s' is missing from certificate", required))
+					add(Error, "KEYUSAGE-MISSING", fmt.Sprintf("required KeyUsage '%s' is missing from certificate", required))
 				} else {
-					add(Info, "EXT-004", fmt.Sprintf("KeyUsage '%s' present OK", required))
+					add(Info, "KEYUSAGE-OK", fmt.Sprintf("KeyUsage '%s' is present", required))
 				}
 			}
 			for _, opt := range req.OptionalValues {
 				ku, known := keyUsageNames[opt]
 				if !known {
-					add(Warning, "EXT-007", fmt.Sprintf("unknown KeyUsage name '%s' in profile", opt))
+					add(Warning, "KEYUSAGE-UNKNOWN", fmt.Sprintf("unknown KeyUsage name '%s' in profile", opt))
 					continue
 				}
 				if cert.KeyUsage&ku != 0 {
-					add(Info, "EXT-007", fmt.Sprintf("optional KeyUsage '%s' present OK", opt))
+					add(Info, "KEYUSAGE-OK", fmt.Sprintf("optional KeyUsage '%s' is present", opt))
 				}
 			}
 			// Any KeyUsage bit not listed as required or optional is not permitted.
@@ -1314,7 +1329,7 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 			}
 			for _, ku := range keyUsageBits {
 				if cert.KeyUsage&ku.bit != 0 && allowed&ku.bit == 0 {
-					add(Error, "EXT-008", fmt.Sprintf(
+					add(Error, "KEYUSAGE-UNLISTED", fmt.Sprintf(
 						"KeyUsage '%s' is present but not listed as required or optional in the profile", ku.name))
 				}
 			}
@@ -1335,7 +1350,7 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 	for _, e := range cert.Extensions {
 		oid := e.Id.String()
 		if !allowed[oid] {
-			add(Error, "EXT-009", fmt.Sprintf(
+			add(Error, "PRESENCE-UNLISTED", fmt.Sprintf(
 				"extension %s is present but not listed in the profile",
 				extensionDisplay(oid)))
 		}

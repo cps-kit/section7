@@ -112,17 +112,17 @@ func TestSelectLatestVersion(t *testing.T) {
 			"a.yaml": profile("2.23.140.1.2.2", past),
 			"b.yaml": profile("2.23.140.1.2.3", past),
 			"c.yaml": profile("2.23.140.1.2.2", older),
-		}, "", "PROFILE-003"},
+		}, "", "PROFILE-AMBIGUOUS"},
 		{"tied without versions", map[string]*Loaded{
 			"a.yaml": profile("2.23.140.1.2.2", time.Time{}),
 			"b.yaml": profile("2.23.140.1.2.3", time.Time{}),
-		}, "", "PROFILE-003"},
+		}, "", "PROFILE-AMBIGUOUS"},
 		{"only newer versions", map[string]*Loaded{
 			"a.yaml": profile("2.23.140.1.2.2", future),
-		}, "", "PROFILE-002"},
+		}, "", "PROFILE-TOONEW"},
 		{"no policy match", map[string]*Loaded{
 			"a.yaml": profile("2.23.140.1.2.1", past),
-		}, "", "PROFILE-001"},
+		}, "", "PROFILE-NOMATCH"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -144,7 +144,7 @@ func TestSelectLatestVersion(t *testing.T) {
 	}
 }
 
-// TestSelectUnmatchedListsFound verifies the PROFILE-001 error names the
+// TestSelectUnmatchedListsFound verifies the PROFILE-NOMATCH error names the
 // policy OIDs the certificate carries, or says it carries none.
 func TestSelectUnmatchedListsFound(t *testing.T) {
 	set := setOf(map[string]*Loaded{
@@ -164,8 +164,8 @@ func TestSelectUnmatchedListsFound(t *testing.T) {
 			if path != "" || len(findings) != 1 {
 				t.Fatalf("got %q and %v, want one finding and no profile", path, findings)
 			}
-			if f := findings[0]; f.RuleID != "PROFILE-001" || f.Severity != Error || !strings.HasSuffix(f.Message, tt.found) {
-				t.Errorf("got %v, want a PROFILE-001 error ending %q", f, tt.found)
+			if f := findings[0]; f.RuleID != "PROFILE-NOMATCH" || f.Severity != Error || !strings.HasSuffix(f.Message, tt.found) {
+				t.Errorf("got %v, want a PROFILE-NOMATCH error ending %q", f, tt.found)
 			}
 		})
 	}
@@ -185,7 +185,7 @@ func TestLoadProfileSetShippedProfiles(t *testing.T) {
 	}
 	found := false
 	for _, f := range findings {
-		if f.RuleID == "POLICY-001" && f.Severity == Info {
+		if f.RuleID == "POLICY-OK" && f.Severity == Info {
 			found = true
 		}
 	}
