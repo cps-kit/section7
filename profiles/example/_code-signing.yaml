@@ -1,0 +1,18 @@
+# Requirements shared by every Code Signing profile.
+
+extends: _common.yaml
+
+requirements:
+  validity:
+    maximum_days: 460
+
+  extensions:
+    subject_alt_name:
+      required: false
+      critical: optional
+      optional_values:
+        - rfc822_name
+
+    extended_key_usage:
+      required_values:
+        - codeSigning
