@@ -1,7 +1,6 @@
 package section7
 
 import (
-	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,9 +10,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
-
-//go:embed profiles/*
-var profiles embed.FS
 
 // ---------- YAML model ----------
 

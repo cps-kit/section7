@@ -660,11 +660,11 @@ func renderProfile(p section7.Profile) string {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "Usage: %s -in <template.md> -out <output.md> [-profiles dir]\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "Usage: %s -in <template.md> -out <output.md> -profiles <dir>\n", os.Args[0])
 	fmt.Fprintf(os.Stderr, "       %s -expand <profile.yaml>\n\n", os.Args[0])
 	fmt.Fprintf(os.Stderr, "  -in file        Markdown template containing {PROFILE.<ID>} placeholders (required)\n")
 	fmt.Fprintf(os.Stderr, "  -out file       Path of the generated Markdown document (required)\n")
-	fmt.Fprintf(os.Stderr, "  -profiles dir   Directory containing profile YAML files (default \"profiles\")\n")
+	fmt.Fprintf(os.Stderr, "  -profiles dir   Directory containing profile YAML files (required)\n")
 	fmt.Fprintf(os.Stderr, "  -expand file    Print the profile with everything it inherits resolved, and exit\n")
 }
 
@@ -757,7 +757,7 @@ func orderKeys(m *yaml.Node, order []string) {
 func main() {
 	templatePath := flag.String("in", "", "markdown template to process (required)")
 	outputPath := flag.String("out", "", "path of the generated markdown document (required)")
-	profilesDir := flag.String("profiles", "profiles", "directory containing profile YAML files")
+	profilesDir := flag.String("profiles", "", "directory containing profile YAML files (required)")
 	expandPath := flag.String("expand", "", "print the fully resolved profile at this path and exit")
 	flag.Usage = usage
 	flag.Parse()
@@ -778,7 +778,7 @@ func main() {
 		*outputPath = flag.Arg(1)
 	}
 
-	if *templatePath == "" || *outputPath == "" {
+	if *templatePath == "" || *outputPath == "" || *profilesDir == "" {
 		usage()
 		os.Exit(1)
 	}

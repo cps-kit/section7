@@ -46,13 +46,12 @@ var (
 // ---------- Main ----------
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "Usage: %s <certificate.pem> [profile.yaml]\n\n", os.Args[0])
-	fmt.Fprintf(os.Stderr, "  certificate.pem  PEM-encoded X.509 certificate to lint\n")
-	fmt.Fprintf(os.Stderr, "  profile.yaml     Profile YAML file (e.g. profiles/tls-ov.yaml).\n")
-	fmt.Fprintf(os.Stderr, "                   When omitted, the profile in ./profiles that is\n")
-	fmt.Fprintf(os.Stderr, "                   recognized by the certificate's policy OIDs and\n")
-	fmt.Fprintf(os.Stderr, "                   has the latest version not later than its\n")
-	fmt.Fprintf(os.Stderr, "                   notBefore is used.\n")
+	fmt.Fprintf(os.Stderr, "Usage: %s <certificate.pem> <profile.yaml | profile-directory>\n\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "  certificate.pem    PEM-encoded X.509 certificate to lint\n")
+	fmt.Fprintf(os.Stderr, "  profile.yaml       Profile to lint against (e.g. profiles/tls-ov.yaml)\n")
+	fmt.Fprintf(os.Stderr, "  profile-directory  Directory of profiles (e.g. profiles). The one that is\n")
+	fmt.Fprintf(os.Stderr, "                     recognized by the certificate's policy OIDs and has\n")
+	fmt.Fprintf(os.Stderr, "                     the latest version not later than its notBefore is used.\n")
 }
 
 // runProfile lints cert against one loaded profile and prints the report.
@@ -170,12 +169,12 @@ func printReport(cert *x509.Certificate, certPath, against string, findings []Fi
 }
 
 func main() {
-	if len(os.Args) < 2 || len(os.Args) > 3 {
+	if len(os.Args) != 3 {
 		usage()
 		os.Exit(1)
 	}
 
-	certPath := os.Args[1]
+	certPath, profileSource := os.Args[1], os.Args[2]
 
 	// Load certificate
 	certPEM, err := os.ReadFile(certPath)
@@ -196,22 +195,27 @@ func main() {
 		os.Exit(1)
 	}
 
+	info, err := os.Stat(profileSource)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Explicit profile
-	if len(os.Args) == 3 {
-		profilePath := os.Args[2]
-		loaded, err := section7.Load(profilePath)
+	if !info.IsDir() {
+		loaded, err := section7.Load(profileSource)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error loading profile: %v\n", err)
 			os.Exit(1)
 		}
-		if runProfile(cert, certPath, profilePath, loaded) > 0 {
+		if runProfile(cert, certPath, profileSource, loaded) > 0 {
 			os.Exit(2)
 		}
 		return
 	}
 
-	// Auto-discovery: run the one profile that applies to the certificate.
-	profiles, err := section7.LoadDir("profiles")
+	// Auto-discovery: run the one profile in the directory that applies to the certificate.
+	profiles, err := section7.LoadDir(profileSource)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading profiles: %v\n", err)
 		os.Exit(1)
