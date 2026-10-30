@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -518,7 +519,21 @@ type Loaded struct {
 }
 
 func Load(path string) (*Loaded, error) {
-	raw, err := resolve(path, nil)
+	return newLoader().load(path)
+}
+
+// loader keeps every file it has resolved, so that a base shared by several
+// profiles is read and parsed only once.
+type loader struct {
+	resolved map[string]map[string]interface{}
+}
+
+func newLoader() *loader {
+	return &loader{resolved: map[string]map[string]interface{}{}}
+}
+
+func (l *loader) load(path string) (*Loaded, error) {
+	raw, err := l.resolve(path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -569,6 +584,7 @@ func LoadDir(dir string) (map[string]*Loaded, error) {
 		return nil, fmt.Errorf("reading profile directory: %w", err)
 	}
 
+	l := newLoader()
 	result := map[string]*Loaded{}
 	for _, e := range entries {
 		if e.IsDir() || IsFragment(e.Name()) {
@@ -579,7 +595,7 @@ func LoadDir(dir string) (map[string]*Loaded, error) {
 			continue
 		}
 		path := filepath.Join(dir, e.Name())
-		loaded, err := Load(path)
+		loaded, err := l.load(path)
 		if err != nil {
 			return nil, err
 		}
@@ -599,7 +615,8 @@ const ExtendsKey = "extends"
 // merged in the order listed, and the extending file is merged last, so a
 // profile always wins over what it inherits. The stack carries the files
 // already being resolved, which is how an inheritance cycle is detected.
-func resolve(path string, stack []string) (map[string]interface{}, error) {
+// The tree returned is the caller's own to modify.
+func (l *loader) resolve(path string, stack []string) (map[string]interface{}, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		abs = path
@@ -609,7 +626,20 @@ func resolve(path string, stack []string) (map[string]interface{}, error) {
 			return nil, fmt.Errorf("profile inheritance cycle: %s is extended by itself", path)
 		}
 	}
+	if cached, ok := l.resolved[abs]; ok {
+		return deepCopy(cached), nil
+	}
 
+	resolved, err := l.resolveFile(path, abs, stack)
+	if err != nil {
+		return nil, err
+	}
+	l.resolved[abs] = resolved
+	return deepCopy(resolved), nil
+}
+
+// resolveFile reads and parses one file and merges it over its bases.
+func (l *loader) resolveFile(path, abs string, stack []string) (map[string]interface{}, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading profile: %w", err)
@@ -651,9 +681,9 @@ func resolve(path string, stack []string) (map[string]interface{}, error) {
 		if !filepath.IsAbs(basePath) {
 			basePath = filepath.Join(filepath.Dir(path), basePath)
 		}
-		// Each base is read afresh, so two profiles extending the same file
+		// Bases come back as copies, so two profiles extending the same file
 		// never share a subtree that one of them could edit for the other.
-		baseRaw, err := resolve(basePath, append(stack, abs))
+		baseRaw, err := l.resolve(basePath, append(stack, abs))
 		if err != nil {
 			return nil, fmt.Errorf("%s extends %s: %w", filepath.Base(path), base, err)
 		}
@@ -661,6 +691,30 @@ func resolve(path string, stack []string) (map[string]interface{}, error) {
 	}
 	mergeInto(merged, raw)
 	return merged, nil
+}
+
+// deepCopy copies the mappings and sequences of a decoded YAML tree.
+func deepCopy(m map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		out[k] = deepCopyValue(v)
+	}
+	return out
+}
+
+func deepCopyValue(v interface{}) interface{} {
+	switch t := v.(type) {
+	case map[string]interface{}:
+		return deepCopy(t)
+	case []interface{}:
+		out := make([]interface{}, len(t))
+		for i, e := range t {
+			out[i] = deepCopyValue(e)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // extendsList reads the `extends` value, which may name one file or several.
@@ -860,12 +914,7 @@ func SubjectAttributeOID(value string) (string, bool) {
 // attribute OID, or an empty string when the OID is not one of the well-known
 // attributes.
 func SubjectAttributeName(oid string) string {
-	for name, info := range SubjectAttributeInfo {
-		if info.OID == oid {
-			return name
-		}
-	}
-	return ""
+	return subjectAttributeByOID[oid]
 }
 
 // IsSupportedSubjectAttribute reports whether an attribute key can be
@@ -891,10 +940,17 @@ func IsSupportedExtension(name string) bool {
 // customExtensionOIDs records extension keys declared by profiles through
 // `extension_oid`, so that an extension that is not well known can still be
 // named readably and resolved to an OID everywhere else in the program.
-var customExtensionOIDs = map[string]string{}
+// Loading writes it and linting reads it, possibly at the same time.
+var (
+	customExtensionsMu   sync.RWMutex
+	customExtensionOIDs  = map[string]string{}
+	customExtensionNames = map[string]string{}
+)
 
 // customExtensionOID looks up a profile-declared extension key.
 func customExtensionOID(name string) (string, bool) {
+	customExtensionsMu.RLock()
+	defer customExtensionsMu.RUnlock()
 	oid, ok := customExtensionOIDs[name]
 	return oid, ok
 }
@@ -915,12 +971,18 @@ func RegisterExtension(name, oid string) error {
 		}
 		return nil
 	}
+
+	customExtensionsMu.Lock()
+	defer customExtensionsMu.Unlock()
 	if existing, ok := customExtensionOIDs[name]; ok && existing != oid {
 		return fmt.Errorf(
 			"extension %q is already declared with OID %s and cannot be redeclared as %s",
 			name, existing, oid)
 	}
 	customExtensionOIDs[name] = oid
+	if existing, ok := customExtensionNames[oid]; !ok || name < existing {
+		customExtensionNames[oid] = name
+	}
 	return nil
 }
 
@@ -1078,17 +1140,12 @@ func ExtensionOID(key string) (string, bool) {
 // ExtensionName returns the profile key for an extension OID, or an empty
 // string when the OID is not one of the well-known extensions.
 func ExtensionName(oid string) string {
-	for name, info := range ExtensionInfo {
-		if info.OID == oid {
-			return name
-		}
+	if name, ok := extensionByOID[oid]; ok {
+		return name
 	}
-	for name, o := range customExtensionOIDs {
-		if o == oid {
-			return name
-		}
-	}
-	return ""
+	customExtensionsMu.RLock()
+	defer customExtensionsMu.RUnlock()
+	return customExtensionNames[oid]
 }
 
 // ExtensionMetaFor returns documentation metadata for an extension key,
@@ -1154,12 +1211,7 @@ func AccessMethodOID(value string) (string, bool) {
 // AccessMethodName returns the well-known name for an access method OID, or an
 // empty string when the OID is not one of the well-known methods.
 func AccessMethodName(oid string) string {
-	for name, info := range AccessMethodInfo {
-		if info.OID == oid {
-			return name
-		}
-	}
-	return ""
+	return accessMethodByOID[oid]
 }
 
 // SupportsAccessDescriptions reports whether an extension carries a sequence of
@@ -1304,12 +1356,7 @@ func GeneralNameTag(key string) (int, bool) {
 // GeneralNameByTag returns the canonical profile key for a context-specific
 // tag, or an empty string when the tag is not one of the known alternatives.
 func GeneralNameByTag(tag int) string {
-	for name, info := range GeneralNameInfo {
-		if info.Tag == tag {
-			return name
-		}
-	}
-	return ""
+	return generalNameByTag[tag]
 }
 
 // GeneralNameLabel returns the ASN.1 name for a profile key, resolving aliases.
@@ -1389,12 +1436,7 @@ func PolicyOID(value string) (string, bool) {
 // PolicyName returns the well-known name for a policy OID, or an empty string
 // when the OID is not one of the well-known policies.
 func PolicyName(oid string) string {
-	for name, info := range PolicyInfo {
-		if info.OID == oid {
-			return name
-		}
-	}
-	return ""
+	return policyByOID[oid]
 }
 
 // CertificatePoliciesOID is the OID of the Certificate Policies extension.
@@ -1440,12 +1482,31 @@ func ExtKeyUsageOID(value string) (string, bool) {
 // ExtKeyUsageName returns the well-known name for an extended key usage OID,
 // or an empty string when the OID is not one of the well-known usages.
 func ExtKeyUsageName(oid string) string {
-	for name, info := range ExtKeyUsageInfo {
-		if info.OID == oid {
-			return name
+	return extKeyUsageByOID[oid]
+}
+
+// Reverse lookups, built once from the registries above, which are not
+// modified after start-up.
+var (
+	subjectAttributeByOID = byKey(SubjectAttributeInfo, func(m SubjectAttributeMeta) string { return m.OID })
+	extensionByOID        = byKey(ExtensionInfo, func(m ExtensionMeta) string { return m.OID })
+	accessMethodByOID     = byKey(AccessMethodInfo, func(m AccessMethodMeta) string { return m.OID })
+	policyByOID           = byKey(PolicyInfo, func(m PolicyMeta) string { return m.OID })
+	extKeyUsageByOID      = byKey(ExtKeyUsageInfo, func(m struct{ OID, Description string }) string { return m.OID })
+	generalNameByTag      = byKey(GeneralNameInfo, func(m GeneralNameMeta) int { return m.Tag })
+)
+
+// byKey inverts a registry keyed by name. Where two names share a key, the
+// alphabetically first wins, so the lookup does not depend on map order.
+func byKey[M any, K comparable](info map[string]M, keyOf func(M) K) map[K]string {
+	out := make(map[K]string, len(info))
+	for name, meta := range info {
+		k := keyOf(meta)
+		if existing, ok := out[k]; !ok || name < existing {
+			out[k] = name
 		}
 	}
-	return ""
+	return out
 }
 
 // validateTransparency checks that the Certificate Transparency extension pair

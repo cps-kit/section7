@@ -300,7 +300,19 @@ section7 lint -in cert.pem -profile profiles/tls-ov.yaml
 section7 lint -in cert.pem -profiles profiles
 ```
 
-With `-profile`, it lints against the one profile in that file. With `-profiles`, it uses the one profile in that directory recognized by the certificate's policy OIDs whose `profile.version` is the latest not later than the certificate's notBefore; if no matching profile is found, it reports why none could be chosen.
+With `-profile`, it lints against the one profile in that file. With `-profiles`, it uses the one profile in that directory recognized by the certificate's policy OIDs whose `profile.version` is the latest not later than the certificate's notBefore; if no matching profile is found, it reports why none could be chosen. Every profile in the directory must validate, or none is used.
+
+## Using the library
+
+A program that lints many certificates, such as a meta-linter, loads a directory of profiles once and reuses it:
+
+```go
+set, err := section7.LoadProfileSet("profiles") // reads, resolves and validates every profile
+...
+path, findings := set.LintCertificate(cert) // chooses the profile for cert, then lints against it
+```
+
+A `ProfileSet` is not modified after loading, so it may be shared by goroutines linting different certificates. `set.SelectProfile(cert)` chooses the profile without linting; when no profile can be chosen, `path` is empty and the findings say why.
 
 ## Mascot
 
