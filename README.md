@@ -1,6 +1,6 @@
-This repository contains a CPS Section 7 certificate profile generator and linter.
+# section7
 
-The profiles located in /profiles, are codified certificate profiles, against which the generator and linter will work.
+A CPS Section 7 certificate profile generator and linter.
 
 The generator can inject the profiles into a CPS document.
 The linter can validate certificates against the profiles.
@@ -9,7 +9,7 @@ The linter can validate certificates against the profiles.
 
 A profile describes every field and extension a conforming certificate may contain. The lists are exhaustive: anything a profile does not describe is reported as a violation, so a profile that says nothing about extensions permits none. Permitting something is always an explicit act.
 
-The fields a profile can describe follow the TBSCertificate of RFC 5280: the certificate version, the serial number, the signature algorithm, the issuer distinguished name, the validity period, the subject distinguished name, the subject public key algorithm with its key sizes or curves, and the extensions. The two remaining fields, `issuerUniqueID` and `subjectUniqueID`, are never permitted (see [Unique identifiers](#unique-identifiers)). The generated document, the lint report and `profile-gen -expand` all present them in that order. The optional `profile.version` is an RFC 3339 timestamp, such as `2026-10-29T12:00:00Z`, recording the revision of the profile document itself; when present, the generated document shows it in the profile's heading.
+The fields a profile can describe follow the TBSCertificate of RFC 5280: the certificate version, the serial number, the signature algorithm, the issuer distinguished name, the validity period, the subject distinguished name, the subject public key algorithm with its key sizes or curves, and the extensions. The two remaining fields, `issuerUniqueID` and `subjectUniqueID`, are never permitted (see [Unique identifiers](#unique-identifiers)). The generated document, the lint report and `section7 expand` all present them in that order. The optional `profile.version` is an RFC 3339 timestamp, such as `2026-10-29T12:00:00Z`, recording the revision of the profile document itself; when present, the generated document shows it in the profile's heading.
 
 Files whose name begins with `_` are shared definitions rather than profiles of their own, and are skipped by profile discovery. A profile pulls them in with `extends`, naming one file or several:
 
@@ -24,7 +24,7 @@ Bases are merged in the order listed and the profile is merged last, so a profil
 To review a profile as a single document, with everything it inherits resolved:
 
 ```
-profile-gen -expand -profile profiles/tls-ov.yaml
+section7 expand -profile profiles/tls-ov.yaml
 ```
 
 ## Supported YAML configuration
@@ -253,6 +253,16 @@ Each extension entry may contain:
 - Mappings are merged recursively; sequences replace inherited values.
 - The profile schema is strict: unsupported keys are rejected during validation.
 
+## Commands
+
+`section7` has three commands:
+
+- `generate` generates a CPS document from a template and a directory of profiles;
+- `lint` lints a certificate against a profile;
+- `expand` prints a profile with everything it inherits resolved.
+
+`section7 -h` lists them, and `section7 <command> -h` shows the flags of each.
+
 ## Generating the CPS document
 
 The generator reads one or more profile YAML files and expands inherited fragments before rendering a CPS document.
@@ -266,7 +276,7 @@ Typical workflow:
 Example:
 
 ```bash
-profile-gen -expand -profile profiles/tls-ov.yaml
+section7 expand -profile profiles/tls-ov.yaml
 ```
 
 This expands inherited fragments and prints the fully resolved profile as YAML.
@@ -274,26 +284,20 @@ This expands inherited fragments and prints the fully resolved profile as YAML.
 To generate a CPS document, give a Markdown template whose `{PROFILE.<ID>}` placeholders name profiles in a directory; `{PROFILE.TLS-OV}` is replaced with the rendering of `tls-ov.yaml`:
 
 ```bash
-profile-gen -in template.md -out cps.md -profiles profiles
+section7 generate -in template.md -out cps.md -profiles profiles
 ```
 
-The generator will emit the CPS content using the profile metadata and requirements. If you want a single merged view for debugging or documentation, use the `-expand` flag as shown above.
+The generator will emit the CPS content using the profile metadata and requirements. If you want a single merged view for debugging or documentation, use `section7 expand` as shown above.
 
-For a full command reference:
-
-```bash
-profile-gen -h
-```
-
-The generator and linter both operate on the same profile model, so a profile that validates with `profile-lint` should also be suitable for CPS generation.
+The generator and linter both operate on the same profile model, so a profile that validates with `section7 lint` should also be suitable for CPS generation.
 
 ## Linting a certificate
 
 The linter reads profiles only from the file or directory it is given; none are built in.
 
 ```bash
-profile-lint -in cert.pem -profile profiles/tls-ov.yaml
-profile-lint -in cert.pem -profiles profiles
+section7 lint -in cert.pem -profile profiles/tls-ov.yaml
+section7 lint -in cert.pem -profiles profiles
 ```
 
 With `-profile`, it lints against the one profile in that file. With `-profiles`, it uses the one profile in that directory recognized by the certificate's policy OIDs whose `profile.version` is the latest not later than the certificate's notBefore; if no matching profile is found, it reports why none could be chosen.
