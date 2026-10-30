@@ -292,11 +292,11 @@ The generator and linter both operate on the same profile model, so a profile th
 The linter reads profiles only from the file or directory it is given; none are built in.
 
 ```bash
-profile-lint cert.pem profiles/tls-ov.yaml
-profile-lint cert.pem profiles
+profile-lint -in cert.pem -profile profiles/tls-ov.yaml
+profile-lint -in cert.pem -profiles profiles
 ```
 
-Given a file, it lints against that profile. Given a directory, it uses the one profile recognized by the certificate's policy OIDs whose `profile.version` is the latest not later than the certificate's notBefore, and otherwise reports why none could be chosen.
+With `-profile`, it lints against the one profile in that file. With `-profiles`, it uses the one profile in that directory recognized by the certificate's policy OIDs whose `profile.version` is the latest not later than the certificate's notBefore; if no matching profile is found, it reports why none could be chosen.
 
 ## Mascot
 

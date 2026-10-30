@@ -8,6 +8,7 @@ package main
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"flag"
 	"fmt"
 	"os"
 	"sort"
@@ -46,12 +47,14 @@ var (
 // ---------- Main ----------
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "Usage: %s <certificate.pem> <profile.yaml | profile-directory>\n\n", os.Args[0])
-	fmt.Fprintf(os.Stderr, "  certificate.pem    PEM-encoded X.509 certificate to lint\n")
-	fmt.Fprintf(os.Stderr, "  profile.yaml       Profile to lint against (e.g. profiles/tls-ov.yaml)\n")
-	fmt.Fprintf(os.Stderr, "  profile-directory  Directory of profiles (e.g. profiles). The one that is\n")
-	fmt.Fprintf(os.Stderr, "                     recognized by the certificate's policy OIDs and has\n")
-	fmt.Fprintf(os.Stderr, "                     the latest version not later than its notBefore is used.\n")
+	fmt.Fprintf(os.Stderr, "Usage: %s -in <certificate.pem> -profile <profile.yaml>\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "       %s -in <certificate.pem> -profiles <dir>\n\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "  -in file        PEM-encoded X.509 certificate to lint (required)\n")
+	fmt.Fprintf(os.Stderr, "  -profile file   Profile to lint against (e.g. profiles/tls-ov.yaml)\n")
+	fmt.Fprintf(os.Stderr, "  -profiles dir   Directory of profiles (e.g. profiles); the one recognized by the\n")
+	fmt.Fprintf(os.Stderr, "                  certificate's policy OIDs with the latest version not later\n")
+	fmt.Fprintf(os.Stderr, "                  than its notBefore is used\n")
+	fmt.Fprintf(os.Stderr, "\nExactly one of -profile and -profiles is required.\n")
 }
 
 // runProfile lints cert against one loaded profile and prints the report.
@@ -169,12 +172,17 @@ func printReport(cert *x509.Certificate, certPath, against string, findings []Fi
 }
 
 func main() {
-	if len(os.Args) != 3 {
+	certFlag := flag.String("in", "", "PEM-encoded X.509 certificate to lint (required)")
+	profilePath := flag.String("profile", "", "profile to lint against")
+	profilesDir := flag.String("profiles", "", "directory of profiles to choose from")
+	flag.Usage = usage
+	flag.Parse()
+
+	if *certFlag == "" || flag.NArg() > 0 || (*profilePath == "") == (*profilesDir == "") {
 		usage()
 		os.Exit(1)
 	}
-
-	certPath, profileSource := os.Args[1], os.Args[2]
+	certPath := *certFlag
 
 	// Load certificate
 	certPEM, err := os.ReadFile(certPath)
@@ -195,27 +203,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	info, err := os.Stat(profileSource)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
 	// Explicit profile
-	if !info.IsDir() {
-		loaded, err := section7.Load(profileSource)
+	if *profilePath != "" {
+		loaded, err := section7.Load(*profilePath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error loading profile: %v\n", err)
 			os.Exit(1)
 		}
-		if runProfile(cert, certPath, profileSource, loaded) > 0 {
+		if runProfile(cert, certPath, *profilePath, loaded) > 0 {
 			os.Exit(2)
 		}
 		return
 	}
 
 	// Auto-discovery: run the one profile in the directory that applies to the certificate.
-	profiles, err := section7.LoadDir(profileSource)
+	profiles, err := section7.LoadDir(*profilesDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading profiles: %v\n", err)
 		os.Exit(1)
