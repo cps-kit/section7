@@ -314,6 +314,8 @@ path, findings := set.LintCertificate(cert) // chooses the profile for cert, the
 
 A `ProfileSet` is not modified after loading, so it may be shared by goroutines linting different certificates. `set.SelectProfile(cert)` chooses the profile without linting; when no profile can be chosen, `path` is empty and the findings say why.
 
+`LoadProfileSet` returns an error when no directory is given, when the directory holds no profiles (only `_` shared definitions or other files), or when any profile in it does not validate, so a misconfiguration fails at start-up rather than with every certificate.
+
 ## Mascot
 
 Meet Sherlock.

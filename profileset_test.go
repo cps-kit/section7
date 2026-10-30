@@ -208,6 +208,39 @@ func TestLoadProfileSetRejectsInvalidProfile(t *testing.T) {
 	}
 }
 
+// TestLoadProfileSetRejectsMissingDirectory verifies that no directory at all
+// is reported as such rather than as a failure to read one.
+func TestLoadProfileSetRejectsMissingDirectory(t *testing.T) {
+	if _, err := LoadProfileSet(""); err == nil || err.Error() != "no profile directory given" {
+		t.Errorf("an empty directory name should be reported, got: %v", err)
+	}
+}
+
+// TestLoadProfileSetRejectsEmptyDirectory verifies that a directory holding no
+// profiles, only shared definitions or other files, is an error.
+func TestLoadProfileSetRejectsEmptyDirectory(t *testing.T) {
+	tests := []struct {
+		name  string
+		files []string
+	}{
+		{"no files", nil},
+		{"only shared definitions and other files", []string{"_common.yaml", "README.md"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, name := range tt.files {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte("requirements: {}\n"), 0o644); err != nil {
+					t.Fatalf("writing %s: %v", name, err)
+				}
+			}
+			if _, err := LoadProfileSet(dir); err == nil || err.Error() != "no profiles in "+dir {
+				t.Errorf("a directory without profiles should be reported, got: %v", err)
+			}
+		})
+	}
+}
+
 // TestLoadDirKeepsSharedBasesApart verifies that a base parsed once for several
 // profiles is not changed for one by what another adds to it.
 func TestLoadDirKeepsSharedBasesApart(t *testing.T) {
