@@ -1814,48 +1814,71 @@ func TestLintPolicyUnderArcAccepted(t *testing.T) {
 	}
 }
 
-// TestSelectProfilesByVersion verifies that only profiles whose version
-// is not later than the certificate's notBefore are selected.
-func TestSelectProfilesByVersion(t *testing.T) {
-	cert := createCertWithPolicies(t, "2.23.140.1.2.2")
+// TestSelectProfileLatestVersion verifies that the one profile selected is the
+// one whose version is the latest not later than the certificate's notBefore.
+func TestSelectProfileLatestVersion(t *testing.T) {
+	cert := createCertWithPolicies(t, "2.23.140.1.2.2", "2.23.140.1.2.3")
 	profile := func(oid string, version time.Time) *section7.Loaded {
 		return &section7.Loaded{Profile: section7.Profile{Profile: section7.Meta{
 			RecognizedBy: section7.RecognizedBy{PolicyOID: oid},
 			Version:      section7.ProfileVersion{Time: version},
 		}}}
 	}
+	older := cert.NotBefore.Add(-2 * time.Hour)
 	past := cert.NotBefore.Add(-time.Hour)
 	future := cert.NotBefore.Add(time.Hour)
 
 	tests := []struct {
 		name     string
 		profiles map[string]*section7.Loaded
-		selected []string
+		selected string
 		ruleID   string
 	}{
-		{"older version", map[string]*section7.Loaded{
+		{"latest of the older versions", map[string]*section7.Loaded{
+			"a.yaml": profile("2.23.140.1.2.2", older),
+			"b.yaml": profile("2.23.140.1.2.2", past),
+			"c.yaml": profile("2.23.140.1.2.2", future),
+		}, "b.yaml", ""},
+		{"across policy OIDs", map[string]*section7.Loaded{
 			"a.yaml": profile("2.23.140.1.2.2", past),
-			"b.yaml": profile("2.23.140.1.2.2", future),
-			"c.yaml": profile("2.23.140.1.2.3", past),
-		}, []string{"a.yaml"}, ""},
+			"b.yaml": profile("2.23.140.1.2.3", older),
+		}, "a.yaml", ""},
+		{"unrecognized profile ignored", map[string]*section7.Loaded{
+			"a.yaml": profile("2.23.140.1.2.2", older),
+			"b.yaml": profile("2.23.140.1.2.1", past),
+		}, "a.yaml", ""},
 		{"no version", map[string]*section7.Loaded{
 			"a.yaml": profile("2.23.140.1.2.2", time.Time{}),
-		}, []string{"a.yaml"}, ""},
+		}, "a.yaml", ""},
+		{"a version beats no version", map[string]*section7.Loaded{
+			"a.yaml": profile("2.23.140.1.2.2", time.Time{}),
+			"b.yaml": profile("2.23.140.1.2.2", older),
+		}, "b.yaml", ""},
 		{"version equals notBefore", map[string]*section7.Loaded{
-			"a.yaml": profile("2.23.140.1.2.2", cert.NotBefore),
-		}, []string{"a.yaml"}, ""},
+			"a.yaml": profile("2.23.140.1.2.2", past),
+			"b.yaml": profile("2.23.140.1.2.2", cert.NotBefore),
+		}, "b.yaml", ""},
+		{"tied latest versions", map[string]*section7.Loaded{
+			"a.yaml": profile("2.23.140.1.2.2", past),
+			"b.yaml": profile("2.23.140.1.2.3", past),
+			"c.yaml": profile("2.23.140.1.2.2", older),
+		}, "", "PROFILE-003"},
+		{"tied without versions", map[string]*section7.Loaded{
+			"a.yaml": profile("2.23.140.1.2.2", time.Time{}),
+			"b.yaml": profile("2.23.140.1.2.3", time.Time{}),
+		}, "", "PROFILE-003"},
 		{"only newer versions", map[string]*section7.Loaded{
 			"a.yaml": profile("2.23.140.1.2.2", future),
-		}, nil, "PROFILE-002"},
+		}, "", "PROFILE-002"},
 		{"no policy match", map[string]*section7.Loaded{
-			"a.yaml": profile("2.23.140.1.2.3", past),
-		}, nil, "PROFILE-001"},
+			"a.yaml": profile("2.23.140.1.2.1", past),
+		}, "", "PROFILE-001"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			selected, f := selectProfiles(cert, tt.profiles)
-			if strings.Join(selected, ",") != strings.Join(tt.selected, ",") {
-				t.Errorf("selected %v, want %v", selected, tt.selected)
+			selected, f := selectProfile(cert, tt.profiles)
+			if selected != tt.selected {
+				t.Errorf("selected %q, want %q", selected, tt.selected)
 			}
 			switch {
 			case tt.ruleID == "" && f != nil:

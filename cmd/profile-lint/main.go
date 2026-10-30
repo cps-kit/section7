@@ -49,8 +49,10 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "Usage: %s <certificate.pem> [profile.yaml]\n\n", os.Args[0])
 	fmt.Fprintf(os.Stderr, "  certificate.pem  PEM-encoded X.509 certificate to lint\n")
 	fmt.Fprintf(os.Stderr, "  profile.yaml     Profile YAML file (e.g. profiles/tls-ov.yaml).\n")
-	fmt.Fprintf(os.Stderr, "                   When omitted, every profile in ./profiles is\n")
-	fmt.Fprintf(os.Stderr, "                   matched against the certificate's policy OIDs.\n")
+	fmt.Fprintf(os.Stderr, "                   When omitted, the profile in ./profiles that is\n")
+	fmt.Fprintf(os.Stderr, "                   recognized by the certificate's policy OIDs and\n")
+	fmt.Fprintf(os.Stderr, "                   has the latest version not later than its\n")
+	fmt.Fprintf(os.Stderr, "                   notBefore is used.\n")
 }
 
 // runProfile lints cert against one loaded profile and prints the report.
@@ -84,36 +86,53 @@ func unmatchedFinding(cert *x509.Certificate) Finding {
 	}
 }
 
-// selectProfiles returns, in path order, the profiles recognized by the
-// certificate's policy OIDs whose version is not later than its notBefore.
-// A profile without a version is not held to its notBefore. When none
-// qualifies, it returns the finding that explains why.
-func selectProfiles(cert *x509.Certificate, profiles map[string]*section7.Loaded) ([]string, *Finding) {
+// selectProfile returns the profile recognized by the certificate's policy OIDs
+// whose version is the latest not later than its notBefore. A profile without
+// a version is not held to its notBefore, but loses to any profile with one.
+// When no single profile qualifies, it returns the finding that explains why.
+func selectProfile(cert *x509.Certificate, profiles map[string]*section7.Loaded) (string, *Finding) {
 	paths := make([]string, 0, len(profiles))
 	for path := range profiles {
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
 
-	var tooNew, selected []string
+	var tooNew, latest []string
+	var latestVersion time.Time
 	for _, path := range paths {
 		p := profiles[path].Profile
 		if !certMatchesProfile(cert, p) {
 			continue
 		}
-		version := p.Profile.Version
-		if version.IsZero() || !version.After(cert.NotBefore) {
-			selected = append(selected, path)
-		} else {
+		version := p.Profile.Version.Time
+		switch {
+		case version.After(cert.NotBefore):
 			tooNew = append(tooNew, fmt.Sprintf("%s version %s", path, version.Format(time.RFC3339Nano)))
+		case len(latest) == 0 || version.After(latestVersion):
+			latest, latestVersion = []string{path}, version
+		case version.Equal(latestVersion):
+			latest = append(latest, path)
 		}
 	}
 
 	switch {
-	case len(selected) > 0:
-		return selected, nil
+	case len(latest) == 1:
+		return latest[0], nil
+	case len(latest) > 1:
+		shared := "no version"
+		if !latestVersion.IsZero() {
+			shared = "version " + latestVersion.Format(time.RFC3339Nano)
+		}
+		return "", &Finding{
+			RuleID:   "PROFILE-003",
+			Severity: Error,
+			Message: fmt.Sprintf(
+				"more than one profile recognized by the certificate's policy OIDs has the latest "+
+					"version not later than its notBefore %s, so none can be chosen (found: %s, all with %s)",
+				cert.NotBefore.Format(time.RFC3339), strings.Join(latest, ", "), shared),
+		}
 	case len(tooNew) > 0:
-		return nil, &Finding{
+		return "", &Finding{
 			RuleID:   "PROFILE-002",
 			Severity: Error,
 			Message: fmt.Sprintf(
@@ -122,7 +141,7 @@ func selectProfiles(cert *x509.Certificate, profiles map[string]*section7.Loaded
 		}
 	default:
 		f := unmatchedFinding(cert)
-		return nil, &f
+		return "", &f
 	}
 }
 
@@ -191,23 +210,19 @@ func main() {
 		return
 	}
 
-	// Auto-discovery: run every profile that applies to the certificate.
+	// Auto-discovery: run the one profile that applies to the certificate.
 	profiles, err := section7.LoadDir("profiles")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading profiles: %v\n", err)
 		os.Exit(1)
 	}
 
-	selected, finding := selectProfiles(cert, profiles)
-	totalErrors := 0
+	path, finding := selectProfile(cert, profiles)
+	var totalErrors int
 	if finding != nil {
-		totalErrors += printReport(cert, certPath, "none", []Finding{*finding})
-	}
-	for i, path := range selected {
-		if i > 0 {
-			fmt.Println()
-		}
-		totalErrors += runProfile(cert, certPath, path, profiles[path])
+		totalErrors = printReport(cert, certPath, "none", []Finding{*finding})
+	} else {
+		totalErrors = runProfile(cert, certPath, path, profiles[path])
 	}
 
 	if totalErrors > 0 {
