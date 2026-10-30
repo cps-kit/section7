@@ -24,7 +24,7 @@ Bases are merged in the order listed and the profile is merged last, so a profil
 To review a profile as a single document, with everything it inherits resolved:
 
 ```
-profile-gen -expand profiles/tls-ov.yaml
+profile-gen -expand -profile profiles/tls-ov.yaml
 ```
 
 ## Supported YAML configuration
@@ -266,7 +266,7 @@ Typical workflow:
 Example:
 
 ```bash
-profile-gen -expand profiles/tls-ov.yaml
+profile-gen -expand -profile profiles/tls-ov.yaml
 ```
 
 This expands inherited fragments and prints the fully resolved profile as YAML.
