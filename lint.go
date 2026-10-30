@@ -8,6 +8,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -844,14 +845,15 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 	}
 
 	// ---- Recognition (certificate policy OID) ----
+	policyOIDs := CertPolicyOIDs(cert)
 	if oid := p.Profile.RecognizedBy.PolicyOID; oid != "" {
-		if CertMatchesProfile(cert, p) {
+		if slices.Contains(policyOIDs, oid) {
 			add(Info, "POLICY-001", fmt.Sprintf(
 				"certificate contains the profile Policy OID %s", oid))
 		} else {
 			found := "none"
-			if oids := CertPolicyOIDs(cert); len(oids) > 0 {
-				found = strings.Join(oids, ", ")
+			if len(policyOIDs) > 0 {
+				found = strings.Join(policyOIDs, ", ")
 			}
 			add(Error, "POLICY-001", fmt.Sprintf(
 				"certificate does not contain the required Policy OID %s (found: %s)", oid, found))
@@ -1234,7 +1236,7 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 		// Certificate Policies
 		if extName == "certificate_policies" && (len(req.RequiredValues) > 0 || len(req.OptionalValues) > 0 || len(req.OptionalArcs) > 0) {
 			present := map[string]bool{}
-			for _, oid := range CertPolicyOIDs(cert) {
+			for _, oid := range policyOIDs {
 				present[oid] = true
 			}
 
@@ -1266,7 +1268,7 @@ func Lint(cert *x509.Certificate, p Profile) []Finding {
 			}
 			// Any policy not listed as required or optional, and not falling
 			// under a permitted arc, is not permitted.
-			for _, oid := range CertPolicyOIDs(cert) {
+			for _, oid := range policyOIDs {
 				if allowed[oid] {
 					continue
 				}
