@@ -463,7 +463,7 @@ func TestLintEmptySubjectRequiresCriticalSAN(t *testing.T) {
 	}{
 		{"no SAN", createEmptySubjectCert(t), section7.Error, "is required", false},
 		{"non-critical SAN", createEmptySubjectCert(t, sanExtension(t, false)), section7.Error, "must be critical", false},
-		{"critical SAN", createEmptySubjectCert(t, sanExtension(t, true)), section7.Info, "OK", true},
+		{"critical SAN", createEmptySubjectCert(t, sanExtension(t, true)), section7.Info, "is critical", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
