@@ -24,7 +24,7 @@ Bases are merged in the order listed and the profile is merged last, so a profil
 To review a profile as a single document, with everything it inherits resolved:
 
 ```
-profile-gen -expand profiles/tls-ov.yaml
+profile-gen -expand -profile profiles/tls-ov.yaml
 ```
 
 ## Supported YAML configuration
@@ -266,15 +266,15 @@ Typical workflow:
 Example:
 
 ```bash
-profile-gen -expand profiles/tls-ov.yaml
+profile-gen -expand -profile profiles/tls-ov.yaml
 ```
 
 This expands inherited fragments and prints the fully resolved profile as YAML.
 
-To generate a CPS document from a profile:
+To generate a CPS document, give a Markdown template whose `{PROFILE.<ID>}` placeholders name profiles in a directory; `{PROFILE.TLS-OV}` is replaced with the rendering of `tls-ov.yaml`:
 
 ```bash
-profile-gen profiles/tls-ov.yaml
+profile-gen -in template.md -out cps.md -profiles profiles
 ```
 
 The generator will emit the CPS content using the profile metadata and requirements. If you want a single merged view for debugging or documentation, use the `-expand` flag as shown above.
@@ -286,6 +286,17 @@ profile-gen -h
 ```
 
 The generator and linter both operate on the same profile model, so a profile that validates with `profile-lint` should also be suitable for CPS generation.
+
+## Linting a certificate
+
+The linter reads profiles only from the file or directory it is given; none are built in.
+
+```bash
+profile-lint -in cert.pem -profile profiles/tls-ov.yaml
+profile-lint -in cert.pem -profiles profiles
+```
+
+With `-profile`, it lints against the one profile in that file. With `-profiles`, it uses the one profile in that directory recognized by the certificate's policy OIDs whose `profile.version` is the latest not later than the certificate's notBefore; if no matching profile is found, it reports why none could be chosen.
 
 ## Mascot
 

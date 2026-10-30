@@ -660,12 +660,13 @@ func renderProfile(p section7.Profile) string {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "Usage: %s -in <template.md> -out <output.md> [-profiles dir]\n", os.Args[0])
-	fmt.Fprintf(os.Stderr, "       %s -expand <profile.yaml>\n\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "Usage: %s -in <template.md> -out <output.md> -profiles <dir>\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "       %s -expand -profile <profile.yaml>\n\n", os.Args[0])
 	fmt.Fprintf(os.Stderr, "  -in file        Markdown template containing {PROFILE.<ID>} placeholders (required)\n")
 	fmt.Fprintf(os.Stderr, "  -out file       Path of the generated Markdown document (required)\n")
-	fmt.Fprintf(os.Stderr, "  -profiles dir   Directory containing profile YAML files (default \"profiles\")\n")
-	fmt.Fprintf(os.Stderr, "  -expand file    Print the profile with everything it inherits resolved, and exit\n")
+	fmt.Fprintf(os.Stderr, "  -profiles dir   Directory containing profile YAML files (required)\n")
+	fmt.Fprintf(os.Stderr, "  -expand         Print the profile with everything it inherits resolved, and exit\n")
+	fmt.Fprintf(os.Stderr, "  -profile file   Profile to expand (required with -expand)\n")
 }
 
 // expandProfile writes the profile at path with its `extends` chain resolved,
@@ -757,13 +758,18 @@ func orderKeys(m *yaml.Node, order []string) {
 func main() {
 	templatePath := flag.String("in", "", "markdown template to process (required)")
 	outputPath := flag.String("out", "", "path of the generated markdown document (required)")
-	profilesDir := flag.String("profiles", "profiles", "directory containing profile YAML files")
-	expandPath := flag.String("expand", "", "print the fully resolved profile at this path and exit")
+	profilesDir := flag.String("profiles", "", "directory containing profile YAML files (required)")
+	expand := flag.Bool("expand", false, "print the fully resolved profile named by -profile and exit")
+	profilePath := flag.String("profile", "", "profile to expand (required with -expand)")
 	flag.Usage = usage
 	flag.Parse()
 
-	if *expandPath != "" {
-		if err := expandProfile(*expandPath, os.Stdout); err != nil {
+	if *expand != (*profilePath != "") {
+		usage()
+		os.Exit(1)
+	}
+	if *expand {
+		if err := expandProfile(*profilePath, os.Stdout); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -778,7 +784,7 @@ func main() {
 		*outputPath = flag.Arg(1)
 	}
 
-	if *templatePath == "" || *outputPath == "" {
+	if *templatePath == "" || *outputPath == "" || *profilesDir == "" {
 		usage()
 		os.Exit(1)
 	}
