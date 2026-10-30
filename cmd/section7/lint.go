@@ -1,8 +1,3 @@
-// Lint a single X.509 certificate against a CP/CPS profile.
-//
-// Negative serial numbers are parsed so that they are reported, not refused.
-//
-//go:debug x509negativeserial=1
 package main
 
 import (
@@ -44,11 +39,12 @@ var (
 	lint = section7.Lint
 )
 
-// ---------- Main ----------
+// ---------- lint command ----------
 
-func usage() {
-	fmt.Fprintf(os.Stderr, "Usage: %s -in <certificate.pem> -profile <profile.yaml>\n", os.Args[0])
-	fmt.Fprintf(os.Stderr, "       %s -in <certificate.pem> -profiles <dir>\n\n", os.Args[0])
+func lintUsage() {
+	fmt.Fprintf(os.Stderr, "Usage: %s lint -in <certificate.pem> -profile <profile.yaml>\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "       %s lint -in <certificate.pem> -profiles <dir>\n\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "Lint a certificate against a profile.\n\n")
 	fmt.Fprintf(os.Stderr, "  -in file        PEM-encoded X.509 certificate to lint (required)\n")
 	fmt.Fprintf(os.Stderr, "  -profile file   Profile to lint against (e.g. profiles/tls-ov.yaml)\n")
 	fmt.Fprintf(os.Stderr, "  -profiles dir   Directory of profiles (e.g. profiles); the one recognized by the\n")
@@ -171,15 +167,17 @@ func printReport(cert *x509.Certificate, certPath, against string, findings []Fi
 	return errors
 }
 
-func main() {
-	certFlag := flag.String("in", "", "PEM-encoded X.509 certificate to lint (required)")
-	profilePath := flag.String("profile", "", "profile to lint against")
-	profilesDir := flag.String("profiles", "", "directory of profiles to choose from")
-	flag.Usage = usage
-	flag.Parse()
+// runLint implements the lint command.
+func runLint(args []string) {
+	fs := flag.NewFlagSet("lint", flag.ExitOnError)
+	certFlag := fs.String("in", "", "PEM-encoded X.509 certificate to lint (required)")
+	profilePath := fs.String("profile", "", "profile to lint against")
+	profilesDir := fs.String("profiles", "", "directory of profiles to choose from")
+	fs.Usage = lintUsage
+	fs.Parse(args)
 
-	if *certFlag == "" || flag.NArg() > 0 || (*profilePath == "") == (*profilesDir == "") {
-		usage()
+	if *certFlag == "" || fs.NArg() > 0 || (*profilePath == "") == (*profilesDir == "") {
+		lintUsage()
 		os.Exit(1)
 	}
 	certPath := *certFlag

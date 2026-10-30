@@ -3,17 +3,13 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/cps-kit/section7"
-
-	"gopkg.in/yaml.v3"
 )
 
 func boolStr(b bool) string {
@@ -659,133 +655,34 @@ func renderProfile(p section7.Profile) string {
 	return sb.String()
 }
 
-func usage() {
-	fmt.Fprintf(os.Stderr, "Usage: %s -in <template.md> -out <output.md> -profiles <dir>\n", os.Args[0])
-	fmt.Fprintf(os.Stderr, "       %s -expand -profile <profile.yaml>\n\n", os.Args[0])
+func generateUsage() {
+	fmt.Fprintf(os.Stderr, "Usage: %s generate -in <template.md> -out <output.md> -profiles <dir>\n\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "Generate a CPS document by replacing each {PROFILE.<ID>} placeholder in the\n")
+	fmt.Fprintf(os.Stderr, "template with the rendering of <id>.yaml from the profiles directory.\n\n")
 	fmt.Fprintf(os.Stderr, "  -in file        Markdown template containing {PROFILE.<ID>} placeholders (required)\n")
 	fmt.Fprintf(os.Stderr, "  -out file       Path of the generated Markdown document (required)\n")
 	fmt.Fprintf(os.Stderr, "  -profiles dir   Directory containing profile YAML files (required)\n")
-	fmt.Fprintf(os.Stderr, "  -expand         Print the profile with everything it inherits resolved, and exit\n")
-	fmt.Fprintf(os.Stderr, "  -profile file   Profile to expand (required with -expand)\n")
 }
 
-// expandProfile writes the profile at path with its `extends` chain resolved,
-// which is the single document that the linter and the generator both see.
-func expandProfile(path string, w io.Writer) error {
-	loaded, err := section7.Load(path)
-	if err != nil {
-		return err
-	}
-	if validationErrs := loaded.Validate(); len(validationErrs) > 0 {
-		for _, errMsg := range validationErrs {
-			fmt.Fprintf(os.Stderr, "  - %s\n", errMsg)
-		}
-		return fmt.Errorf("profile %s has uninterpretable requirements", path)
-	}
+// runGenerate implements the generate command.
+func runGenerate(args []string) {
+	fs := flag.NewFlagSet("generate", flag.ExitOnError)
+	templatePath := fs.String("in", "", "markdown template to process (required)")
+	outputPath := fs.String("out", "", "path of the generated markdown document (required)")
+	profilesDir := fs.String("profiles", "", "directory containing profile YAML files (required)")
+	fs.Usage = generateUsage
+	fs.Parse(args)
 
-	var doc yaml.Node
-	if err := doc.Encode(loaded.Raw); err != nil {
-		return err
+	// Positional fallback: section7 generate <template> <output>
+	if *templatePath == "" && fs.NArg() > 0 {
+		*templatePath = fs.Arg(0)
 	}
-	// The YAML encoder sorts map keys alphabetically; restore the order of a
-	// profile and of the certificate it describes.
-	orderKeys(&doc, []string{"profile", "requirements"})
-	if req := mapValue(&doc, "requirements"); req != nil {
-		orderKeys(req, section7.RequirementOrder)
-		for _, name := range []string{"issuer", "subject"} {
-			if attrs := mapValue(mapValue(req, name), "attributes"); attrs != nil {
-				keys := make([]string, 0, len(attrs.Content)/2)
-				for i := 0; i+1 < len(attrs.Content); i += 2 {
-					keys = append(keys, attrs.Content[i].Value)
-				}
-				section7.SortAttributeKeys(keys)
-				orderKeys(attrs, keys)
-			}
-		}
-	}
-
-	out, err := yaml.Marshal(&doc)
-	if err != nil {
-		return err
-	}
-	_, err = w.Write(out)
-	return err
-}
-
-// mapValue returns the value stored under key in a mapping node, or nil.
-func mapValue(m *yaml.Node, key string) *yaml.Node {
-	if m == nil || m.Kind != yaml.MappingNode {
-		return nil
-	}
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		if m.Content[i].Value == key {
-			return m.Content[i+1]
-		}
-	}
-	return nil
-}
-
-// orderKeys reorders the entries of a mapping node to follow order. Keys not
-// in order keep their relative positions after those that are.
-func orderKeys(m *yaml.Node, order []string) {
-	if m.Kind != yaml.MappingNode {
-		return
-	}
-	rank := make(map[string]int, len(order))
-	for i, key := range order {
-		rank[key] = i
-	}
-	rankOf := func(key string) int {
-		if r, ok := rank[key]; ok {
-			return r
-		}
-		return len(order)
-	}
-
-	pairs := make([][2]*yaml.Node, 0, len(m.Content)/2)
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		pairs = append(pairs, [2]*yaml.Node{m.Content[i], m.Content[i+1]})
-	}
-	sort.SliceStable(pairs, func(i, j int) bool {
-		return rankOf(pairs[i][0].Value) < rankOf(pairs[j][0].Value)
-	})
-	m.Content = m.Content[:0]
-	for _, pair := range pairs {
-		m.Content = append(m.Content, pair[0], pair[1])
-	}
-}
-
-func main() {
-	templatePath := flag.String("in", "", "markdown template to process (required)")
-	outputPath := flag.String("out", "", "path of the generated markdown document (required)")
-	profilesDir := flag.String("profiles", "", "directory containing profile YAML files (required)")
-	expand := flag.Bool("expand", false, "print the fully resolved profile named by -profile and exit")
-	profilePath := flag.String("profile", "", "profile to expand (required with -expand)")
-	flag.Usage = usage
-	flag.Parse()
-
-	if *expand != (*profilePath != "") {
-		usage()
-		os.Exit(1)
-	}
-	if *expand {
-		if err := expandProfile(*profilePath, os.Stdout); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
-
-	// Positional fallback: profile-gen <template> <output>
-	if *templatePath == "" && flag.NArg() > 0 {
-		*templatePath = flag.Arg(0)
-	}
-	if *outputPath == "" && flag.NArg() > 1 {
-		*outputPath = flag.Arg(1)
+	if *outputPath == "" && fs.NArg() > 1 {
+		*outputPath = fs.Arg(1)
 	}
 
 	if *templatePath == "" || *outputPath == "" || *profilesDir == "" {
-		usage()
+		generateUsage()
 		os.Exit(1)
 	}
 
