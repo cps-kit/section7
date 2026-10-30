@@ -174,13 +174,13 @@ func TestSelectUnmatchedListsFound(t *testing.T) {
 // TestLoadProfileSetShippedProfiles verifies the shipped profiles load as a set
 // and that an OV certificate is linted against the OV profile.
 func TestLoadProfileSetShippedProfiles(t *testing.T) {
-	set, err := LoadProfileSet("profiles")
+	set, err := LoadProfileSet(filepath.Join("profiles", "example"))
 	if err != nil {
 		t.Fatalf("loading profiles: %v", err)
 	}
 
 	path, findings := set.LintCertificate(certWithPolicies(t, "2.23.140.1.2.2"))
-	if want := filepath.Join("profiles", "tls-ov.yaml"); path != want {
+	if want := filepath.Join("profiles", "example", "tls-ov.yaml"); path != want {
 		t.Fatalf("linted against %q, want %q", path, want)
 	}
 	found := false
@@ -273,7 +273,7 @@ func TestLoadDirKeepsSharedBasesApart(t *testing.T) {
 // TestProfileSetConcurrentUse verifies a set gives the same result when used
 // from many goroutines, while extensions are being registered. Run with -race.
 func TestProfileSetConcurrentUse(t *testing.T) {
-	set, err := LoadProfileSet("profiles")
+	set, err := LoadProfileSet(filepath.Join("profiles", "example"))
 	if err != nil {
 		t.Fatalf("loading profiles: %v", err)
 	}

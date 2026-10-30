@@ -24,7 +24,7 @@ Bases are merged in the order listed and the profile is merged last, so a profil
 To review a profile as a single document, with everything it inherits resolved:
 
 ```
-section7 expand -profile profiles/tls-ov.yaml
+section7 expand -profile profiles/example/tls-ov.yaml
 ```
 
 ## Supported YAML configuration
@@ -276,7 +276,7 @@ Typical workflow:
 Example:
 
 ```bash
-section7 expand -profile profiles/tls-ov.yaml
+section7 expand -profile profiles/example/tls-ov.yaml
 ```
 
 This expands inherited fragments and prints the fully resolved profile as YAML.
@@ -284,7 +284,7 @@ This expands inherited fragments and prints the fully resolved profile as YAML.
 To generate a CPS document, give a Markdown template whose `{PROFILE.<ID>}` placeholders name profiles in a directory; `{PROFILE.TLS-OV}` is replaced with the rendering of `tls-ov.yaml`:
 
 ```bash
-section7 generate -in template.md -out cps.md -profiles profiles
+section7 generate -in template.md -out cps.md -profiles profiles/example
 ```
 
 The generator will emit the CPS content using the profile metadata and requirements. If you want a single merged view for debugging or documentation, use `section7 expand` as shown above.
@@ -296,8 +296,8 @@ The generator and linter both operate on the same profile model, so a profile th
 The linter reads profiles only from the file or directory it is given; none are built in.
 
 ```bash
-section7 lint -in cert.pem -profile profiles/tls-ov.yaml
-section7 lint -in cert.pem -profiles profiles
+section7 lint -in cert.pem -profile profiles/example/tls-ov.yaml
+section7 lint -in cert.pem -profiles profiles/example
 ```
 
 With `-profile`, it lints against the one profile in that file. With `-profiles`, it uses the one profile in that directory recognized by the certificate's policy OIDs whose `profile.version` is the latest not later than the certificate's notBefore; if no matching profile is found, it reports why none could be chosen. Every profile in the directory must validate, or none is used.
@@ -307,7 +307,7 @@ With `-profile`, it lints against the one profile in that file. With `-profiles`
 A program that lints many certificates, such as a meta-linter, loads a directory of profiles once and reuses it:
 
 ```go
-set, err := section7.LoadProfileSet("profiles") // reads, resolves and validates every profile
+set, err := section7.LoadProfileSet("profiles/example") // reads, resolves and validates every profile
 ...
 path, findings := set.LintCertificate(cert) // chooses the profile for cert, then lints against it
 ```
